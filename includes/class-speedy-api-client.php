@@ -199,19 +199,23 @@ class Speedy_Api_Client {
 	}
 
 	/**
-	 * DELETE /shipment - cancel one shipment.
+	 * POST /shipment/cancel - cancel one shipment.
+	 *
+	 * Must be POST: WordPress sends DELETE data as a query string, so a JSON
+	 * body never reached Speedy and the waybill stayed in MySpeedy.
 	 *
 	 * @param string|int $shipment_id Shipment ID.
 	 * @param string     $comment     Cancellation reason.
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function cancel_shipment( $shipment_id, $comment = '' ) {
-		return $this->request(
-			'DELETE',
-			'/shipment',
+		$comment = sanitize_text_field( $comment );
+
+		return $this->post(
+			'/shipment/cancel',
 			array(
 				'shipmentId' => (string) $shipment_id,
-				'comment'    => sanitize_text_field( $comment ),
+				'comment'    => '' !== $comment ? $comment : 'Отказана от търговеца',
 			)
 		);
 	}
