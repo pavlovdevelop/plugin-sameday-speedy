@@ -400,8 +400,17 @@ class Sameday_Price_Calculator {
 			return A1post_Tariff::calculate_price( $country, $weight );
 		}
 
-		// Speedy services prefer the cached API rate (per-contract pricing).
+		// Speedy services: the real contract price for the exact destination (and COD fee),
+		// then the cached per-weight API rate, then the hardcoded tariff.
 		if ( in_array( $service_code, array( 'speedy_office', 'speedy_aps', 'speedy_door' ), true ) ) {
+			if ( class_exists( 'Speedy_Live_Quote' ) ) {
+				$live_price = Speedy_Live_Quote::get_price( $service_code, $weight, $context );
+
+				if ( null !== $live_price ) {
+					return $live_price;
+				}
+			}
+
 			$api_price = $this->get_cached_speedy_price( $service_code, $weight );
 
 			if ( null !== $api_price ) {

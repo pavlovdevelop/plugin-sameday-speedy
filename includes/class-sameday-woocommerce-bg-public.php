@@ -99,6 +99,7 @@ class Sameday_Woocommerce_Bg_Public {
 					'freeShipping'            => 'Вие получавате безплатна доставка!',
 					'freeShippingCard'         => 'Доставката е безплатна, защото плащате с карта.',
 					'pricePrefix'              => 'Вашата цена за доставка е',
+					'calculatingPrice'         => 'Изчисляваме цената за доставка...',
 					'currency'                 => $currency_symbol,
 					'easyboxChooseCity'        => 'Изберете населено място',
 					'easyboxChooseLocation'    => 'Изберете EasyBox автомат',

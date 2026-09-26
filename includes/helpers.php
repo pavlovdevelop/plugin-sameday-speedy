@@ -53,7 +53,7 @@ function sameday_get_settings() {
 		'card_free_shipping_threshold' => '49.99',
 		'card_free_shipping_scope'     => 'all',
 		'card_free_shipping_gateways'  => array(),
-		'card_free_shipping_payment_scope' => 'card',
+		'card_free_shipping_payment_scope' => 'all',
 		'free_shipping_country_scope'      => 'domestic',
 	);
 
@@ -254,7 +254,7 @@ function sameday_get_card_free_shipping_scope() {
  * @return string
  */
 function sameday_get_free_shipping_payment_scope() {
-	return 'all' === sameday_get_setting( 'card_free_shipping_payment_scope', 'card' ) ? 'all' : 'card';
+	return 'card' === sameday_get_setting( 'card_free_shipping_payment_scope', 'all' ) ? 'card' : 'all';
 }
 
 /**

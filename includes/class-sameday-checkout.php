@@ -20,6 +20,11 @@ class Sameday_Checkout {
 	const SESSION_KEY = 'sameday_delivery_selection';
 
 	/**
+	 * Name of the delivery fee line in cart totals.
+	 */
+	const FEE_NAME = 'Доставка';
+
+	/**
 	 * Price calculator instance.
 	 *
 	 * @var Sameday_Price_Calculator
@@ -84,7 +89,7 @@ class Sameday_Checkout {
 		$selected_service          = $this->price_calculator->get_service_definition( $selection['service'] );
 		$cart_weight               = $this->get_cart_weight();
 		$cart_subtotal             = $this->get_cart_subtotal();
-		$context                   = $this->get_delivery_context();
+		$context                   = $this->get_delivery_context( $selection );
 		$country                   = $context['country'];
 		$card_threshold            = sameday_get_card_free_shipping_threshold();
 		$card_payment_scope        = sameday_get_free_shipping_payment_scope();
@@ -139,14 +144,22 @@ class Sameday_Checkout {
 	}
 
 	/**
-	 * Context that influences pricing: destination country and payment method.
+	 * Context that influences pricing: destination country, payment method and Speedy destination.
 	 *
-	 * @return array<string, string>
+	 * @param array|null $selection Delivery selection; defaults to the session selection.
+	 * @return array<string, mixed>
 	 */
-	public function get_delivery_context() {
+	public function get_delivery_context( $selection = null ) {
+		if ( ! is_array( $selection ) ) {
+			$selection = $this->get_delivery_selection();
+		}
+
 		return array(
-			'country'        => $this->get_destination_country(),
-			'payment_method' => $this->get_chosen_payment_method(),
+			'country'          => $this->get_destination_country(),
+			'payment_method'   => $this->get_chosen_payment_method(),
+			// Destination, used to quote the real Speedy price.
+			'speedy_location'  => isset( $selection['speedy_location'] ) ? $selection['speedy_location'] : 0,
+			'speedy_door_city' => isset( $selection['speedy_door_city'] ) ? $selection['speedy_door_city'] : '',
 		);
 	}
 
@@ -358,7 +371,7 @@ class Sameday_Checkout {
 		update_post_meta( $order_id, '_sameday_delivery_service_label', $service['label'] );
 		update_post_meta( $order_id, '_sameday_delivery_details', $selection['details'] );
 
-		$context        = $this->get_delivery_context();
+		$context        = $this->get_delivery_context( $selection );
 		$cart_subtotal  = $this->get_cart_subtotal();
 		$delivery_price = $this->price_calculator->calculate_service_price( $selection['service'], $this->get_cart_weight(), $cart_subtotal, $context );
 
@@ -441,18 +454,76 @@ class Sameday_Checkout {
 			return;
 		}
 
+		$cart_subtotal = $this->get_cart_subtotal( $cart );
+		$context       = $this->get_delivery_context( $selection );
+
+		// Show an explicit free delivery line so the customer sees one clear delivery price.
+		if ( $this->price_calculator->qualifies_for_free_shipping( $selection['service'], $cart_subtotal, $context ) ) {
+			$cart->add_fee( self::FEE_NAME, 0, false );
+			return;
+		}
+
 		$amount = $this->price_calculator->calculate_service_price(
 			$selection['service'],
 			$this->get_cart_weight(),
-			$this->get_cart_subtotal( $cart ),
-			$this->get_delivery_context()
+			$cart_subtotal,
+			$context
 		);
 
 		if ( $amount <= 0 ) {
 			return;
 		}
 
-		$cart->add_fee( 'Доставка', $amount, false );
+		$cart->add_fee( self::FEE_NAME, $amount, false );
+	}
+
+	/**
+	 * Show "Безплатна" instead of 0,00 for the free delivery line in totals.
+	 *
+	 * @param string $fee_html Fee HTML.
+	 * @param object $fee      Fee.
+	 * @return string
+	 */
+	public function filter_free_delivery_fee_html( $fee_html, $fee ) {
+		if ( isset( $fee->name, $fee->amount ) && self::FEE_NAME === $fee->name && (float) $fee->amount <= 0 ) {
+			return '<strong>Безплатна</strong>';
+		}
+
+		return $fee_html;
+	}
+
+	/**
+	 * AJAX: the exact delivery price the cart will charge for a Speedy selection,
+	 * so the checkout summary always shows the same number as the totals.
+	 *
+	 * @return void
+	 */
+	public function quote_speedy_price() {
+		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+
+		$service = isset( $_POST['service'] ) ? wc_clean( wp_unslash( $_POST['service'] ) ) : '';
+
+		if ( ! in_array( $service, array( 'speedy_office', 'speedy_aps', 'speedy_door' ), true ) ) {
+			wp_send_json_error();
+		}
+
+		$context = array(
+			'country'          => $this->get_destination_country(),
+			'payment_method'   => isset( $_POST['payment_method'] ) ? wc_clean( wp_unslash( $_POST['payment_method'] ) ) : $this->get_chosen_payment_method(),
+			'speedy_location'  => isset( $_POST['location'] ) ? absint( wp_unslash( $_POST['location'] ) ) : 0,
+			'speedy_door_city' => isset( $_POST['door_city'] ) ? sanitize_text_field( wp_unslash( $_POST['door_city'] ) ) : '',
+			'postcode'         => isset( $_POST['postcode'] ) ? sanitize_text_field( wp_unslash( $_POST['postcode'] ) ) : '',
+		);
+
+		$cart_subtotal = $this->get_cart_subtotal();
+		$free          = $this->price_calculator->qualifies_for_free_shipping( $service, $cart_subtotal, $context );
+
+		wp_send_json_success(
+			array(
+				'free'  => $free,
+				'price' => $free ? 0 : $this->price_calculator->calculate_service_price( $service, $this->get_cart_weight(), $cart_subtotal, $context ),
+			)
+		);
 	}
 
 	/**

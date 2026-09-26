@@ -12,6 +12,9 @@ jQuery(function($) {
 	var deliveryFieldsRequest = null;
 	var lastRenderedCountry = '';
 	var lastPaymentMethod = '';
+	var speedyQuotes = {};
+	var speedyQuoteTimer = null;
+	var speedyQuoteRequest = null;
 
 	if (!checkoutConfig) {
 		return;
@@ -258,6 +261,56 @@ jQuery(function($) {
 		var definition = getServiceDefinition(serviceCode);
 
 		return !!(definition && definition.provider === provider);
+	}
+
+	function isSpeedyService(serviceCode) {
+		return !!serviceCode && serviceCode.indexOf('speedy_') === 0;
+	}
+
+	// The Speedy price comes from the server (real contract price for the chosen
+	// office / city, incl. the COD fee), so the summary always matches the totals.
+	function getSpeedyQuoteKey(serviceCode) {
+		var destination = serviceCode === 'speedy_door' ? getSpeedyDoorCity().toLowerCase() : getSpeedyLocationId();
+
+		return [serviceCode, destination, $.trim($('#billing_postcode').val() || ''), getSelectedPaymentMethod()].join('|');
+	}
+
+	function requestSpeedyQuote(serviceCode) {
+		var key = getSpeedyQuoteKey(serviceCode);
+
+		clearTimeout(speedyQuoteTimer);
+		speedyQuoteTimer = setTimeout(function() {
+			if (speedyQuoteRequest) {
+				speedyQuoteRequest.abort();
+			}
+
+			speedyQuoteRequest = $.ajax({
+				url: checkoutConfig.ajaxUrl,
+				type: 'POST',
+				dataType: 'json',
+				data: {
+					action: 'sameday_speedy_quote',
+					security: checkoutConfig.nonce,
+					service: serviceCode,
+					location: getSpeedyLocationId(),
+					door_city: getSpeedyDoorCity(),
+					postcode: $.trim($('#billing_postcode').val() || ''),
+					payment_method: getSelectedPaymentMethod()
+				}
+			}).done(function(response) {
+				speedyQuotes[key] = response && response.success ? response.data : { failed: true };
+			}).fail(function(xhr, status) {
+				if (status !== 'abort') {
+					speedyQuotes[key] = { failed: true };
+				}
+			}).always(function() {
+				speedyQuoteRequest = null;
+
+				if (getSpeedyQuoteKey(getSelectedService()) === key) {
+					updateSummary();
+				}
+			});
+		}, 400);
 	}
 
 	function formatPrice(value) {
@@ -935,6 +988,34 @@ jQuery(function($) {
 		if (!serviceCode || !isSelectionReady(serviceCode)) {
 			$summary.removeClass('has-price is-free-shipping').addClass('is-hidden').html('');
 			return;
+		}
+
+		if (isSpeedyService(serviceCode)) {
+			var quote = speedyQuotes[getSpeedyQuoteKey(serviceCode)];
+
+			if (!quote) {
+				$summary
+					.removeClass('is-hidden is-free-shipping has-price')
+					.html('<strong>' + (checkoutConfig.strings.calculatingPrice || '...') + '</strong>');
+				requestSpeedyQuote(serviceCode);
+				return;
+			}
+
+			if (!quote.failed) {
+				if (quote.free) {
+					$summary
+						.removeClass('is-hidden has-price')
+						.addClass('is-free-shipping')
+						.html('<strong>' + checkoutConfig.strings.freeShipping + '</strong>');
+					return;
+				}
+
+				$summary
+					.removeClass('is-hidden is-free-shipping')
+					.addClass('has-price')
+					.html('<strong>' + checkoutConfig.strings.pricePrefix + ' ' + formatPrice(quote.price) + '</strong>');
+				return;
+			}
 		}
 
 		if (hasFreeShipping(serviceCode)) {

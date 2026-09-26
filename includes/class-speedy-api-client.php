@@ -147,6 +147,33 @@ class Speedy_Api_Client {
 	}
 
 	/**
+	 * POST /location/site - find Bulgarian sites (cities/villages) by name and/or post code.
+	 *
+	 * @param string $name      Site name.
+	 * @param string $post_code Post code.
+	 * @return array<int, array<string, mixed>>|WP_Error
+	 */
+	public function find_sites( $name, $post_code = '' ) {
+		$payload = array( 'countryId' => 100 );
+
+		if ( '' !== $name ) {
+			$payload['name'] = $name;
+		}
+
+		if ( '' !== $post_code ) {
+			$payload['postCode'] = $post_code;
+		}
+
+		$response = $this->post( '/location/site', $payload );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return isset( $response['sites'] ) && is_array( $response['sites'] ) ? $response['sites'] : array();
+	}
+
+	/**
 	 * POST /shipment - create one shipment.
 	 *
 	 * @param array<string, mixed> $payload Shipment payload.

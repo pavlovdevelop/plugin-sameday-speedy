@@ -158,6 +158,7 @@ class Sameday_Woocommerce_Bg {
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-settings.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-shipment-manager.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-rate-cache.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-live-quote.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-admin.php';
 
 		/**
@@ -279,6 +280,9 @@ class Sameday_Woocommerce_Bg {
 		$this->loader->add_filter( 'woocommerce_cart_needs_shipping', $checkout, 'filter_cart_needs_shipping', 100 );
 		$this->loader->add_action( 'woocommerce_checkout_process', $checkout, 'validate_delivery_selection' );
 		$this->loader->add_action( 'woocommerce_checkout_update_order_meta', $checkout, 'save_order_meta' );
+		$this->loader->add_filter( 'woocommerce_cart_totals_fee_html', $checkout, 'filter_free_delivery_fee_html', 10, 2 );
+		$this->loader->add_action( 'wp_ajax_sameday_speedy_quote', $checkout, 'quote_speedy_price' );
+		$this->loader->add_action( 'wp_ajax_nopriv_sameday_speedy_quote', $checkout, 'quote_speedy_price' );
 
 		new Sameday_Ajax();
 		new Sameday_Order_Meta();
