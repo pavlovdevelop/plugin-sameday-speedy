@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Sameday WooCommerce България
  * Plugin URI: https://example.com/sameday-woocommerce-bg
- * Description: Добавя методи за доставка със Sameday - EasyBox и Куриер 24 часа, както и Speedy - офис, адрес и АПС за WooCommerce. Без API интеграция.
- * Version: 1.4.5
+ * Description: Добавя методи за доставка със Sameday - EasyBox и Куриер 24 часа, Speedy - офис, адрес и АПС, и A1POST за международни доставки. Включва пълна Speedy API интеграция (профил, договор, генериране, принтиране и изтриване на товарителници), безплатна доставка при плащане с карта и ограничаване на куриерите по държава.
+ * Version: 1.7.0
  * Author: PADev
  * Author URI:
  * License: GPL-2.0+
@@ -28,7 +28,7 @@ define( 'SAMEDAY_WOOCOMMERCE_BG_BOOTSTRAPPED', true );
  * Current plugin version.
  */
 if ( ! defined( 'SAMEDAY_WOOCOMMERCE_BG_VERSION' ) ) {
-	define( 'SAMEDAY_WOOCOMMERCE_BG_VERSION', '1.4.5' );
+	define( 'SAMEDAY_WOOCOMMERCE_BG_VERSION', '1.7.0' );
 }
 
 /**

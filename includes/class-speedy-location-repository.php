@@ -25,6 +25,11 @@ class Speedy_Location_Repository {
 	const META_OPTION_KEY = 'sameday_speedy_cities_meta';
 
 	/**
+	 * Full location dataset pulled from the Speedy API.
+	 */
+	const LOCATIONS_OPTION_KEY = 'sameday_speedy_locations';
+
+	/**
 	 * Transient prefix for one city payload.
 	 */
 	const CITY_TRANSIENT_PREFIX = 'sameday_spd_city_';
@@ -33,6 +38,11 @@ class Speedy_Location_Repository {
 	 * Official Speedy page with all offices and APS city filters.
 	 */
 	const BASE_URL = 'https://www.speedy.bg/bg/speedy-offices-automats';
+
+	/**
+	 * Speedy country id for Bulgaria, used by the API lookups.
+	 */
+	const COUNTRY_ID_BG = 100;
 
 	/**
 	 * Cache lifetime in seconds.
@@ -45,6 +55,11 @@ class Speedy_Location_Repository {
 	const REQUEST_TIMEOUT = 90;
 
 	/**
+	 * Remote request timeout while a customer is waiting on the checkout.
+	 */
+	const FRONTEND_REQUEST_TIMEOUT = 10;
+
+	/**
 	 * Maximum retry attempts for one remote request.
 	 */
 	const MAX_RETRIES = 3;
@@ -53,6 +68,11 @@ class Speedy_Location_Repository {
 	 * Delay between retries in microseconds.
 	 */
 	const RETRY_DELAY_US = 500000;
+
+	/**
+	 * Cool-down after a failed sync, in seconds.
+	 */
+	const BACKOFF_SECONDS = 900;
 
 	/**
 	 * Get all Speedy cities.
@@ -67,15 +87,67 @@ class Speedy_Location_Repository {
 			$cities = array();
 		}
 
-		if ( $force_refresh || $this->needs_city_refresh( $cities ) ) {
+		if ( ! $force_refresh && ! $this->needs_city_refresh( $cities ) ) {
+			return $cities;
+		}
+
+		if ( $force_refresh || sameday_can_sync_in_request() ) {
+			if ( ! $force_refresh && sameday_sync_is_backed_off( 'speedy_cities' ) ) {
+				return $cities;
+			}
+
 			$refreshed = $this->sync_cities();
 
-			if ( ! is_wp_error( $refreshed ) ) {
-				return $refreshed;
-			}
+			return is_wp_error( $refreshed ) ? $cities : $refreshed;
+		}
+
+		// A customer waiting on the checkout never pays for a full refresh; it
+		// happens on cron instead. The one exception is a completely cold cache,
+		// where a single API call beats showing an empty picker - and the
+		// cool-down is set first so only one visitor can ever wait on it.
+		$this->schedule_background_sync();
+
+		if ( ! empty( $cities ) || sameday_sync_is_backed_off( 'speedy_cities' ) || ! $this->api_is_available() ) {
+			return $cities;
+		}
+
+		sameday_sync_start_backoff( 'speedy_cities', self::BACKOFF_SECONDS );
+
+		if ( ! is_wp_error( $this->sync_from_api() ) ) {
+			$cities = get_option( self::CITIES_OPTION_KEY, array() );
+
+			return is_array( $cities ) ? $cities : array();
 		}
 
 		return $cities;
+	}
+
+	/**
+	 * Queue a one-off background sync so a cold cache fills itself.
+	 *
+	 * @return void
+	 */
+	private function schedule_background_sync() {
+		if ( ! function_exists( 'wp_next_scheduled' ) || wp_next_scheduled( 'sameday_speedy_sync_locations' ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time() + 60, 'sameday_speedy_sync_locations' );
+	}
+
+	/**
+	 * Cron handler for the background sync.
+	 *
+	 * @return void
+	 */
+	public static function register_cron_handler() {
+		add_action(
+			'sameday_speedy_sync_locations',
+			function () {
+				$repository = new self();
+				$repository->sync_locations();
+			}
+		);
 	}
 
 	/**
@@ -122,10 +194,22 @@ class Speedy_Location_Repository {
 		$locations     = get_transient( $transient_key );
 
 		if ( ! is_array( $locations ) ) {
-			$locations = $this->fetch_city_locations( $city_id );
+			// The API dataset holds every office and APS in one option, so a
+			// cold city is served from it instead of a fresh remote request.
+			$locations = $this->get_stored_locations_for_city( $city_id );
 
-			if ( is_wp_error( $locations ) ) {
-				return array();
+			if ( null === $locations ) {
+				if ( sameday_sync_is_backed_off( 'speedy_city_' . $city_id ) ) {
+					return array();
+				}
+
+				$locations = $this->fetch_city_locations( $city_id );
+
+				if ( is_wp_error( $locations ) ) {
+					sameday_sync_start_backoff( 'speedy_city_' . $city_id, self::BACKOFF_SECONDS );
+
+					return array();
+				}
 			}
 
 			set_transient( $transient_key, $locations, self::CACHE_TTL );
@@ -167,6 +251,7 @@ class Speedy_Location_Repository {
 				'offices_count'   => 0,
 				'aps_count'       => 0,
 				'source_url'      => self::BASE_URL,
+				'source'          => '',
 				'last_error'      => '',
 			)
 		);
@@ -182,14 +267,31 @@ class Speedy_Location_Repository {
 			@set_time_limit( 0 );
 		}
 
-		$cities_result = $this->sync_cities();
+		// The Speedy API returns every office and APS in Bulgaria in a single
+		// call, so it is both the fastest and the only source that keeps
+		// working when the public site changes its markup or blocks the shop.
+		$api_result = $this->sync_from_api();
+
+		if ( ! is_wp_error( $api_result ) ) {
+			return $api_result;
+		}
+
+		$api_error     = $api_result;
+		$cities_result = $this->sync_cities( false, $api_error );
 		$cities        = $cities_result;
 
 		if ( is_wp_error( $cities_result ) ) {
 			$cities = get_option( self::CITIES_OPTION_KEY, array() );
 
 			if ( ! is_array( $cities ) || empty( $cities ) ) {
-				return $cities_result;
+				return new WP_Error(
+					$cities_result->get_error_code(),
+					sprintf(
+						'Speedy API: %1$s Публичен сайт на Speedy: %2$s',
+						$api_error->get_error_message(),
+						$cities_result->get_error_message()
+					)
+				);
 			}
 		}
 
@@ -231,21 +333,17 @@ class Speedy_Location_Repository {
 			}
 		}
 
-		$warning = '';
+		$parts = array( sprintf( 'Speedy API не беше използван: %s', $api_error->get_error_message() ) );
 
-		if ( ! empty( $fallback_cities ) || ! empty( $skipped_cities ) ) {
-			$parts = array();
-
-			if ( ! empty( $fallback_cities ) ) {
-				$parts[] = sprintf( 'Използван е кеш за %d населени места', count( $fallback_cities ) );
-			}
-
-			if ( ! empty( $skipped_cities ) ) {
-				$parts[] = sprintf( 'пропуснати са %d населени места без кеш', count( $skipped_cities ) );
-			}
-
-			$warning = implode( '; ', $parts ) . '.';
+		if ( ! empty( $fallback_cities ) ) {
+			$parts[] = sprintf( 'Използван е кеш за %d населени места', count( $fallback_cities ) );
 		}
+
+		if ( ! empty( $skipped_cities ) ) {
+			$parts[] = sprintf( 'пропуснати са %d населени места без кеш', count( $skipped_cities ) );
+		}
+
+		$warning = implode( '; ', $parts ) . '.';
 
 		update_option(
 			self::META_OPTION_KEY,
@@ -257,6 +355,7 @@ class Speedy_Location_Repository {
 				'offices_count'   => $offices_count,
 				'aps_count'       => $aps_count,
 				'source_url'      => self::BASE_URL,
+				'source'          => 'scrape',
 				'last_error'      => $warning,
 			),
 			false
@@ -271,26 +370,48 @@ class Speedy_Location_Repository {
 	}
 
 	/**
-	 * Sync Speedy city list from the official page.
+	 * Sync the Speedy city list, API first and public page second.
 	 *
+	 * @param bool          $try_api   Whether to attempt the API before the page.
+	 * @param WP_Error|null $api_error API failure from an earlier attempt, reported alongside a page failure.
 	 * @return array<int, array<string, mixed>>|WP_Error
 	 */
-	public function sync_cities() {
+	public function sync_cities( $try_api = true, $api_error = null ) {
+		if ( $try_api ) {
+			$api_error = $this->sync_from_api();
+
+			if ( ! is_wp_error( $api_error ) ) {
+				$cities = get_option( self::CITIES_OPTION_KEY, array() );
+
+				return is_array( $cities ) ? $cities : array();
+			}
+		}
+
+		if ( ! is_wp_error( $api_error ) ) {
+			$api_error = new WP_Error( 'speedy_api_skipped', 'Speedy API не беше опитан.' );
+		}
+
 		$cities = $this->fetch_remote_cities();
 
 		if ( is_wp_error( $cities ) ) {
-			$cached_cities = get_option( self::CITIES_OPTION_KEY, array() );
-			$meta          = $this->get_sync_meta();
-			$meta['last_error'] = $cities->get_error_message();
+			$cached_cities      = get_option( self::CITIES_OPTION_KEY, array() );
+			$meta               = $this->get_sync_meta();
+			$meta['last_error'] = sprintf(
+				'Speedy API: %1$s Публичен сайт на Speedy: %2$s',
+				$api_error->get_error_message(),
+				$cities->get_error_message()
+			);
 			update_option( self::META_OPTION_KEY, $meta, false );
+			sameday_sync_start_backoff( 'speedy_cities', self::BACKOFF_SECONDS );
 
 			if ( is_array( $cached_cities ) && ! empty( $cached_cities ) ) {
 				return $cached_cities;
 			}
 
-			return $cities;
+			return new WP_Error( $cities->get_error_code(), $meta['last_error'] );
 		}
 
+		sameday_sync_clear_backoff( 'speedy_cities' );
 		update_option( self::CITIES_OPTION_KEY, $cities, false );
 		update_option(
 			self::META_OPTION_KEY,
@@ -302,12 +423,285 @@ class Speedy_Location_Repository {
 				'offices_count'   => 0,
 				'aps_count'       => 0,
 				'source_url'      => self::BASE_URL,
-				'last_error'      => '',
+				'source'          => 'scrape',
+				'last_error'      => sprintf( 'Speedy API не беше използван: %s', $api_error->get_error_message() ),
 			),
 			false
 		);
 
 		return $cities;
+	}
+
+	/* -----------------------------------------------------------------------
+	 * Speedy API source
+	 * --------------------------------------------------------------------- */
+
+	/**
+	 * Whether the shop has Speedy API credentials configured.
+	 *
+	 * @return bool
+	 */
+	private function api_is_available() {
+		return class_exists( 'Speedy_Api_Client' )
+			&& class_exists( 'Speedy_Settings' )
+			&& Speedy_Settings::has_credentials();
+	}
+
+	/**
+	 * Pull every Bulgarian office and APS from the Speedy API in one call and
+	 * store both the derived city list and the per-city location lists.
+	 *
+	 * @return array<string, int>|WP_Error
+	 */
+	public function sync_from_api() {
+		if ( ! $this->api_is_available() ) {
+			return new WP_Error(
+				'speedy_api_not_configured',
+				'Не са въведени потребител и парола за Speedy API, затова се използва публичният сайт на Speedy.'
+			);
+		}
+
+		$client  = new Speedy_Api_Client( Speedy_Settings::get_credentials() );
+		$offices = $client->find_offices( array( 'countryId' => self::COUNTRY_ID_BG ) );
+
+		if ( is_wp_error( $offices ) ) {
+			return $offices;
+		}
+
+		if ( empty( $offices ) ) {
+			return new WP_Error( 'speedy_api_empty_offices', 'Speedy API не върна нито един офис.' );
+		}
+
+		$dataset = $this->build_dataset_from_api( $offices );
+
+		if ( empty( $dataset['cities'] ) ) {
+			return new WP_Error( 'speedy_api_no_cities', 'Speedy API върна офиси без разпознати населени места.' );
+		}
+
+		update_option( self::CITIES_OPTION_KEY, $dataset['cities'], false );
+		update_option( self::LOCATIONS_OPTION_KEY, $dataset['by_city'], false );
+
+		foreach ( $dataset['by_city'] as $city_id => $locations ) {
+			set_transient( self::CITY_TRANSIENT_PREFIX . (int) $city_id, $locations, self::CACHE_TTL );
+		}
+
+		update_option(
+			self::META_OPTION_KEY,
+			array(
+				'synced_at'       => time(),
+				'count'           => count( $dataset['cities'] ),
+				'cities_count'    => count( $dataset['cities'] ),
+				'locations_count' => $dataset['locations_count'],
+				'offices_count'   => $dataset['offices_count'],
+				'aps_count'       => $dataset['aps_count'],
+				'source_url'      => Speedy_Api_Client::BASE_URL . '/location/office',
+				'source'          => 'api',
+				'last_error'      => '',
+			),
+			false
+		);
+
+		sameday_sync_clear_backoff( 'speedy_cities' );
+
+		return array(
+			'cities_count'    => count( $dataset['cities'] ),
+			'locations_count' => $dataset['locations_count'],
+			'offices_count'   => $dataset['offices_count'],
+			'aps_count'       => $dataset['aps_count'],
+		);
+	}
+
+	/**
+	 * Turn the raw API office list into cities plus locations grouped by city.
+	 *
+	 * @param array<int, array<string, mixed>> $offices Raw API offices.
+	 * @return array<string, mixed>
+	 */
+	private function build_dataset_from_api( $offices ) {
+		$cities          = array();
+		$by_city         = array();
+		$offices_count   = 0;
+		$aps_count       = 0;
+		$locations_count = 0;
+
+		foreach ( $offices as $office ) {
+			if ( ! is_array( $office ) ) {
+				continue;
+			}
+
+			$location = $this->normalize_api_office( $office );
+
+			if ( null === $location ) {
+				continue;
+			}
+
+			$city_id = $location['city_id'];
+
+			if ( ! isset( $cities[ $city_id ] ) ) {
+				$cities[ $city_id ] = array(
+					'id'    => $city_id,
+					'name'  => $location['city'],
+					'label' => $location['city_label'],
+				);
+			}
+
+			if ( ! isset( $by_city[ $city_id ] ) ) {
+				$by_city[ $city_id ] = array();
+			}
+
+			$by_city[ $city_id ][ $location['id'] ] = $location;
+		}
+
+		foreach ( $by_city as $city_id => $locations ) {
+			$locations = array_values( $locations );
+
+			usort(
+				$locations,
+				function ( $left, $right ) {
+					$by_type = $this->compare_strings( $left['type'], $right['type'] );
+
+					if ( 0 !== $by_type ) {
+						return $by_type;
+					}
+
+					$by_name = $this->compare_strings( $left['name'], $right['name'] );
+
+					if ( 0 !== $by_name ) {
+						return $by_name;
+					}
+
+					return $this->compare_strings( $left['address'], $right['address'] );
+				}
+			);
+
+			$by_city[ $city_id ] = $locations;
+			$locations_count    += count( $locations );
+
+			foreach ( $locations as $location ) {
+				if ( 'aps' === $location['type'] ) {
+					$aps_count++;
+				} else {
+					$offices_count++;
+				}
+			}
+		}
+
+		$cities = array_values( $cities );
+
+		usort(
+			$cities,
+			function ( $left, $right ) {
+				return $this->compare_strings( $left['name'], $right['name'] );
+			}
+		);
+
+		return array(
+			'cities'          => $cities,
+			'by_city'         => $by_city,
+			'locations_count' => $locations_count,
+			'offices_count'   => $offices_count,
+			'aps_count'       => $aps_count,
+		);
+	}
+
+	/**
+	 * Normalize one Speedy API office into the shape the checkout expects.
+	 *
+	 * @param array<string, mixed> $office Raw API office.
+	 * @return array<string, mixed>|null
+	 */
+	private function normalize_api_office( $office ) {
+		$id      = isset( $office['id'] ) ? absint( $office['id'] ) : 0;
+		$address = isset( $office['address'] ) && is_array( $office['address'] ) ? $office['address'] : array();
+		$city_id = isset( $address['siteId'] ) ? absint( $address['siteId'] ) : 0;
+
+		if ( $id <= 0 || $city_id <= 0 ) {
+			return null;
+		}
+
+		$name = $this->clean_text( isset( $office['name'] ) ? $office['name'] : '' );
+
+		$address_text = $this->clean_text(
+			isset( $address['fullAddressString'] ) && '' !== $address['fullAddressString']
+				? $address['fullAddressString']
+				: ( isset( $address['localAddressString'] ) ? $address['localAddressString'] : '' )
+		);
+
+		if ( '' === $name && '' === $address_text ) {
+			return null;
+		}
+
+		$city_name  = $this->clean_text( isset( $address['siteName'] ) ? $address['siteName'] : '' );
+		$site_type  = $this->clean_text( isset( $address['siteType'] ) ? $address['siteType'] : '' );
+		$post_code  = $this->clean_text( isset( $address['postCode'] ) ? $address['postCode'] : '' );
+		$city_label = trim( ( '' !== $site_type ? $site_type . ' ' : '' ) . $city_name );
+
+		if ( '' !== $post_code ) {
+			$city_label .= ' (' . $post_code . ')';
+		}
+
+		if ( '' === $city_name ) {
+			return null;
+		}
+
+		$label = '' !== $name && '' !== $address_text ? $name . ' - ' . $address_text : $name . $address_text;
+
+		return array(
+			'id'         => $id,
+			'type'       => $this->normalize_api_office_type( $office ),
+			'name'       => '' !== $name ? $name : $address_text,
+			'city_id'    => $city_id,
+			'city'       => $city_name,
+			'city_label' => $city_label,
+			'address'    => $address_text,
+			'label'      => $label,
+			'details'    => trim( $name . ( '' !== $address_text ? ', ' . $address_text : '' ) ),
+			'map_url'    => '',
+		);
+	}
+
+	/**
+	 * Decide whether one API office is a counter office or an APS locker.
+	 *
+	 * @param array<string, mixed> $office Raw API office.
+	 * @return string
+	 */
+	private function normalize_api_office_type( $office ) {
+		$type = strtoupper( (string) ( isset( $office['type'] ) ? $office['type'] : '' ) );
+
+		if ( 'APT' === $type || 'APS' === $type || 'LOCKER' === $type ) {
+			return 'aps';
+		}
+
+		if ( ! empty( $office['apartment'] ) || ! empty( $office['automat'] ) ) {
+			return 'aps';
+		}
+
+		// Older API revisions only mark lockers through the office name.
+		$name = (string) ( isset( $office['name'] ) ? $office['name'] : '' );
+		$name = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $name, 'UTF-8' ) : strtoupper( $name );
+
+		if ( false !== strpos( $name, 'АПС' ) || false !== strpos( $name, 'APS' ) ) {
+			return 'aps';
+		}
+
+		return 'office';
+	}
+
+	/**
+	 * Read one city's locations out of the stored API dataset.
+	 *
+	 * @param int $city_id City/site ID.
+	 * @return array<int, array<string, mixed>>|null Null when the dataset has no entry.
+	 */
+	private function get_stored_locations_for_city( $city_id ) {
+		$dataset = get_option( self::LOCATIONS_OPTION_KEY, array() );
+
+		if ( ! is_array( $dataset ) || ! isset( $dataset[ $city_id ] ) || ! is_array( $dataset[ $city_id ] ) ) {
+			return null;
+		}
+
+		return $dataset[ $city_id ];
 	}
 
 	/**
@@ -498,12 +892,17 @@ class Speedy_Location_Repository {
 	 */
 	private function request_html( $url, $error_code, $invalid_message ) {
 		$last_error = '';
+		// A customer waiting on the checkout must never sit through three
+		// ninety-second attempts; that is what makes the lookup look dead.
+		$in_request = ! sameday_can_sync_in_request();
+		$timeout    = $in_request ? self::FRONTEND_REQUEST_TIMEOUT : self::REQUEST_TIMEOUT;
+		$attempts   = $in_request ? 1 : self::MAX_RETRIES;
 
-		for ( $attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++ ) {
+		for ( $attempt = 1; $attempt <= $attempts; $attempt++ ) {
 			$response = wp_remote_get(
 				$url,
 				array(
-					'timeout'     => self::REQUEST_TIMEOUT,
+					'timeout'     => $timeout,
 					'redirection' => 5,
 					'user-agent'  => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
 					'headers'     => array(
@@ -526,7 +925,7 @@ class Speedy_Location_Repository {
 				$last_error = sprintf( 'Неуспешна връзка към Speedy: %s', $response->get_error_message() );
 			}
 
-			if ( $attempt < self::MAX_RETRIES && function_exists( 'usleep' ) ) {
+			if ( $attempt < $attempts && function_exists( 'usleep' ) ) {
 				usleep( self::RETRY_DELAY_US );
 			}
 		}

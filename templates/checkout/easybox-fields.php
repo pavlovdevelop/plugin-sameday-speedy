@@ -218,9 +218,69 @@
 		</p>
 	</div>
 
+	<div class="a1post-fields<?php echo 'a1post_international' === $selection['service'] ? '' : ' is-hidden'; ?>">
+		<p class="description">
+			<?php
+			if ( '' !== $a1post_note ) {
+				echo esc_html( $a1post_note );
+			} else {
+				esc_html_e( 'Доставката се извършва от A1POST до адреса, попълнен в поръчката.', 'sameday-woocommerce-bg' );
+			}
+			?>
+		</p>
+
+		<p class="form-row form-row-wide">
+			<label for="a1post_name">Получател <span class="required">*</span></label>
+			<input type="text" name="a1post_name" id="a1post_name" class="input-text" value="<?php echo esc_attr( $selection['a1post_name'] ); ?>" placeholder="Име и фамилия" maxlength="40" />
+		</p>
+
+		<p class="form-row form-row-first">
+			<label for="a1post_phone">Телефон <span class="required">*</span></label>
+			<input type="text" name="a1post_phone" id="a1post_phone" class="input-text" value="<?php echo esc_attr( $selection['a1post_phone'] ); ?>" placeholder="+39..." />
+		</p>
+
+		<p class="form-row form-row-last">
+			<label for="a1post_email">Имейл <span class="required">*</span></label>
+			<input type="email" name="a1post_email" id="a1post_email" class="input-text" value="<?php echo esc_attr( $selection['a1post_email'] ); ?>" placeholder="email@example.com" />
+		</p>
+
+		<p class="form-row form-row-wide">
+			<label for="a1post_address_1">Адрес <span class="required">*</span></label>
+			<input type="text" name="a1post_address_1" id="a1post_address_1" class="input-text" value="<?php echo esc_attr( $selection['a1post_address_1'] ); ?>" placeholder="Улица, номер, вход, апартамент" />
+		</p>
+
+		<p class="form-row form-row-wide">
+			<label for="a1post_address_2">Адрес 2</label>
+			<input type="text" name="a1post_address_2" id="a1post_address_2" class="input-text" value="<?php echo esc_attr( $selection['a1post_address_2'] ); ?>" placeholder="Допълнителен адрес, квартал, фирма" />
+		</p>
+
+		<p class="form-row form-row-first">
+			<label for="a1post_city">Град <span class="required">*</span></label>
+			<input type="text" name="a1post_city" id="a1post_city" class="input-text" value="<?php echo esc_attr( $selection['a1post_city'] ); ?>" placeholder="Roma" />
+		</p>
+
+		<p class="form-row form-row-last">
+			<label for="a1post_postcode">Пощенски код <span class="required">*</span></label>
+			<input type="text" name="a1post_postcode" id="a1post_postcode" class="input-text" value="<?php echo esc_attr( $selection['a1post_postcode'] ); ?>" placeholder="00100" />
+		</p>
+
+		<p class="form-row form-row-wide">
+			<label for="a1post_state">Област / щат</label>
+			<input type="text" name="a1post_state" id="a1post_state" class="input-text" value="<?php echo esc_attr( $selection['a1post_state'] ); ?>" placeholder="Lazio" />
+		</p>
+
+		<p class="form-row form-row-wide">
+			<label for="a1post_notes">Уточнения за доставката</label>
+			<textarea name="a1post_notes" id="a1post_notes" class="input-text" rows="2" placeholder="Звънец, работно време, инструкции към куриера"><?php echo esc_textarea( $selection['a1post_notes'] ); ?></textarea>
+		</p>
+	</div>
+
 	<div id="sameday-delivery-summary" class="sameday-delivery-summary is-hidden<?php echo $show_price ? ' has-price' : ''; ?><?php echo ! empty( $show_free_shipping ) ? ' is-free-shipping' : ''; ?>">
 		<?php if ( ! empty( $show_free_shipping ) ) : ?>
 			<strong>Вие получавате безплатна доставка!</strong>
+			<?php if ( ! empty( $free_shipping_by_card ) ) : ?>
+				<span class="sameday-free-shipping-reason">Доставката е безплатна, защото плащате с карта.</span>
+			<?php endif; ?>
 		<?php elseif ( $show_price ) : ?>
 			<strong>Вашата цена за доставка е <?php echo wp_kses_post( wc_price( $delivery_price ) ); ?></strong>
 		<?php elseif ( empty( $selection['service'] ) ) : ?>
@@ -228,6 +288,22 @@
 		<?php endif; ?>
 	</div>
 
+	<?php if ( ! empty( $card_rule_active ) ) : ?>
+		<p class="sameday-card-free-shipping-hint">
+			<?php
+			echo wp_kses_post(
+				sprintf(
+					'all' === $card_payment_scope
+						? 'Безплатна доставка за поръчки над %s.'
+						: 'Безплатна доставка при плащане с карта за поръчки над %s.',
+					wc_price( $card_threshold )
+				)
+			);
+			?>
+		</p>
+	<?php endif; ?>
+
 	<input type="hidden" id="sameday_cart_weight" value="<?php echo esc_attr( $cart_weight ); ?>" />
 	<input type="hidden" id="sameday_cart_subtotal" value="<?php echo esc_attr( $cart_subtotal ); ?>" />
+	<input type="hidden" id="sameday_delivery_country" value="<?php echo esc_attr( $country ); ?>" />
 </div>

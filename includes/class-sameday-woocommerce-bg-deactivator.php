@@ -19,7 +19,8 @@ class Sameday_Woocommerce_Bg_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
-
+		require_once plugin_dir_path( __FILE__ ) . 'class-speedy-rate-cache.php';
+		Speedy_Rate_Cache::clear_cron();
 	}
 
 }

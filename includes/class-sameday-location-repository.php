@@ -35,6 +35,21 @@ class Sameday_Location_Repository {
 	const CACHE_TTL = 43200;
 
 	/**
+	 * Remote request timeout in seconds.
+	 */
+	const REQUEST_TIMEOUT = 30;
+
+	/**
+	 * Remote request timeout while a customer is waiting on the checkout.
+	 */
+	const FRONTEND_REQUEST_TIMEOUT = 10;
+
+	/**
+	 * Cool-down after a failed sync, in seconds.
+	 */
+	const BACKOFF_SECONDS = 900;
+
+	/**
 	 * Get all cached EasyBox locations.
 	 *
 	 * @param bool $force_refresh Whether to force sync with the remote source.
@@ -47,15 +62,62 @@ class Sameday_Location_Repository {
 			$locations = array();
 		}
 
-		if ( $force_refresh || $this->needs_refresh( $locations ) ) {
-			$refreshed = $this->sync_locations();
-
-			if ( ! is_wp_error( $refreshed ) ) {
-				return $refreshed;
-			}
+		if ( ! $force_refresh && ! $this->needs_refresh( $locations ) ) {
+			return $locations;
 		}
 
-		return $locations;
+		if ( $force_refresh || sameday_can_sync_in_request() ) {
+			if ( ! $force_refresh && sameday_sync_is_backed_off( 'easybox_locations' ) ) {
+				return $locations;
+			}
+
+			$refreshed = $this->sync_locations();
+
+			return is_wp_error( $refreshed ) ? $locations : $refreshed;
+		}
+
+		// A customer waiting on the checkout never pays for a refresh; cron does
+		// it instead. Only a completely cold cache gets one short attempt, and
+		// the cool-down is set first so a failing source cannot be hammered.
+		$this->schedule_background_sync();
+
+		if ( ! empty( $locations ) || sameday_sync_is_backed_off( 'easybox_locations' ) ) {
+			return $locations;
+		}
+
+		sameday_sync_start_backoff( 'easybox_locations', self::BACKOFF_SECONDS );
+
+		$refreshed = $this->sync_locations();
+
+		return is_wp_error( $refreshed ) ? $locations : $refreshed;
+	}
+
+	/**
+	 * Queue a one-off background sync so a cold cache fills itself.
+	 *
+	 * @return void
+	 */
+	private function schedule_background_sync() {
+		if ( ! function_exists( 'wp_next_scheduled' ) || wp_next_scheduled( 'sameday_easybox_sync_locations' ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time() + 60, 'sameday_easybox_sync_locations' );
+	}
+
+	/**
+	 * Cron handler for the background sync.
+	 *
+	 * @return void
+	 */
+	public static function register_cron_handler() {
+		add_action(
+			'sameday_easybox_sync_locations',
+			function () {
+				$repository = new self();
+				$repository->sync_locations();
+			}
+		);
 	}
 
 	/**
@@ -173,10 +235,12 @@ class Sameday_Location_Repository {
 			$meta               = $this->get_sync_meta();
 			$meta['last_error'] = $locations->get_error_message();
 			update_option( self::META_OPTION_KEY, $meta, false );
+			sameday_sync_start_backoff( 'easybox_locations', self::BACKOFF_SECONDS );
 
 			return $locations;
 		}
 
+		sameday_sync_clear_backoff( 'easybox_locations' );
 		update_option( self::OPTION_KEY, $locations, false );
 		update_option(
 			self::META_OPTION_KEY,
@@ -222,7 +286,7 @@ class Sameday_Location_Repository {
 		$response = wp_remote_get(
 			self::REMOTE_URL,
 			array(
-				'timeout'    => 30,
+				'timeout'    => sameday_can_sync_in_request() ? self::REQUEST_TIMEOUT : self::FRONTEND_REQUEST_TIMEOUT,
 				'headers'    => array(
 					'Accept' => 'application/json',
 				),

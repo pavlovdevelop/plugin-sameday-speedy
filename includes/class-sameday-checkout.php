@@ -41,12 +41,29 @@ class Sameday_Checkout {
 	private $speedy_location_repository;
 
 	/**
+	 * Destination country forced by the caller (used by the AJAX re-render).
+	 *
+	 * @var string
+	 */
+	private $country_override = '';
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
 		$this->price_calculator          = new Sameday_Price_Calculator();
 		$this->location_repository       = new Sameday_Location_Repository();
 		$this->speedy_location_repository = new Speedy_Location_Repository();
+	}
+
+	/**
+	 * Force the destination country used while rendering.
+	 *
+	 * @param string $country ISO-2 country code.
+	 * @return void
+	 */
+	public function set_country_override( $country ) {
+		$this->country_override = strtoupper( trim( (string) $country ) );
 	}
 
 	/**
@@ -63,12 +80,24 @@ class Sameday_Checkout {
 		$selection                 = $this->get_delivery_selection();
 		$provider_options          = $this->get_enabled_provider_options();
 		$services_by_provider      = $this->get_enabled_services_by_provider();
+		$selection                 = $this->apply_single_option_defaults( $selection, $provider_options, $services_by_provider );
 		$selected_service          = $this->price_calculator->get_service_definition( $selection['service'] );
 		$cart_weight               = $this->get_cart_weight();
 		$cart_subtotal             = $this->get_cart_subtotal();
+		$context                   = $this->get_delivery_context();
+		$country                   = $context['country'];
+		$card_threshold            = sameday_get_card_free_shipping_threshold();
+		$card_payment_scope        = sameday_get_free_shipping_payment_scope();
+		// The hint is only true for destinations the rule actually covers, so an
+		// order shipped abroad never advertises free shipping it will not get.
+		$card_rule_active          = sameday_is_card_free_shipping_enabled()
+			&& $card_threshold > 0
+			&& sameday_is_free_shipping_country( $country );
+		$a1post_note               = (string) A1post_Tariff::get( 'delivery_note', '' );
 		$delivery_price            = 0;
 		$show_price                = false;
 		$show_free_shipping        = false;
+		$free_shipping_by_card     = false;
 		$selected_easybox_location = null;
 		$selected_speedy_location  = null;
 
@@ -85,12 +114,88 @@ class Sameday_Checkout {
 		}
 
 		if ( ! empty( $selection['service'] ) && $this->is_selection_complete( $selection ) ) {
-			$show_free_shipping = $this->price_calculator->qualifies_for_free_shipping( $selection['service'], $cart_subtotal );
-			$delivery_price     = $this->price_calculator->calculate_service_price( $selection['service'], $cart_weight, $cart_subtotal );
-			$show_price         = ! $show_free_shipping && $delivery_price > 0;
+			$show_free_shipping    = $this->price_calculator->qualifies_for_free_shipping( $selection['service'], $cart_subtotal, $context );
+			$free_shipping_by_card = 'card' === $this->price_calculator->get_free_shipping_reason( $selection['service'], $cart_subtotal, $context );
+			$delivery_price        = $this->price_calculator->calculate_service_price( $selection['service'], $cart_weight, $cart_subtotal, $context );
+			$show_price            = ! $show_free_shipping && $delivery_price > 0;
 		}
 
 		include SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'templates/checkout/easybox-fields.php';
+	}
+
+	/**
+	 * Render the delivery fields into a string for the AJAX refresh.
+	 *
+	 * @param string $country Destination country.
+	 * @return string
+	 */
+	public function get_delivery_fields_markup( $country = '' ) {
+		$this->set_country_override( $country );
+
+		ob_start();
+		$this->render_delivery_fields();
+
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Context that influences pricing: destination country and payment method.
+	 *
+	 * @return array<string, string>
+	 */
+	public function get_delivery_context() {
+		return array(
+			'country'        => $this->get_destination_country(),
+			'payment_method' => $this->get_chosen_payment_method(),
+		);
+	}
+
+	/**
+	 * Resolve the destination country for the current request.
+	 *
+	 * @return string
+	 */
+	private function get_destination_country() {
+		if ( '' !== $this->country_override ) {
+			return $this->country_override;
+		}
+
+		return sameday_get_customer_country();
+	}
+
+	/**
+	 * Resolve the payment method the customer has currently selected.
+	 *
+	 * @return string
+	 */
+	private function get_chosen_payment_method() {
+		if ( isset( $_POST['payment_method'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			$posted = wc_clean( wp_unslash( $_POST['payment_method'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+			if ( '' !== $posted ) {
+				return (string) $posted;
+			}
+		}
+
+		if ( function_exists( 'WC' ) && WC()->session ) {
+			$chosen = WC()->session->get( 'chosen_payment_method' );
+
+			if ( ! empty( $chosen ) ) {
+				return (string) $chosen;
+			}
+		}
+
+		// Before the first order review refresh nothing is stored yet, so mirror
+		// the gateway WooCommerce itself pre-selects.
+		if ( function_exists( 'WC' ) && WC()->payment_gateways() ) {
+			$available = WC()->payment_gateways()->get_available_payment_gateways();
+
+			if ( ! empty( $available ) ) {
+				return (string) key( $available );
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -103,7 +208,13 @@ class Sameday_Checkout {
 		$parsed_data = array();
 
 		parse_str( wp_unslash( $posted_data ), $parsed_data );
-		$this->save_delivery_selection_to_session( $this->sanitize_delivery_selection( $parsed_data ) );
+		$selection = $this->sanitize_delivery_selection( $parsed_data );
+		$selection = $this->apply_single_option_defaults(
+			$selection,
+			$this->get_enabled_provider_options(),
+			$this->get_enabled_services_by_provider()
+		);
+		$this->save_delivery_selection_to_session( $selection );
 	}
 
 	/**
@@ -117,6 +228,11 @@ class Sameday_Checkout {
 		}
 
 		$selection = $this->sanitize_delivery_selection( $_POST );
+		$selection = $this->apply_single_option_defaults(
+			$selection,
+			$this->get_enabled_provider_options(),
+			$this->get_enabled_services_by_provider()
+		);
 		$this->save_delivery_selection_to_session( $selection );
 
 		if ( empty( $selection['provider'] ) ) {
@@ -171,6 +287,44 @@ class Sameday_Checkout {
 			return;
 		}
 
+		if ( 'a1post_international' === $selection['service'] ) {
+			$country = $this->get_destination_country();
+
+			if ( 'BG' === $country ) {
+				wc_add_notice( 'A1POST се използва само за доставки извън България. Моля, изберете куриер за България.', 'error' );
+
+				return;
+			}
+
+			if ( ! A1post_Tariff::supports_country( $country ) ) {
+				wc_add_notice( 'За избраната държава няма активна тарифа на A1POST. Моля, свържете се с нас.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_name'] ) ) {
+				wc_add_notice( 'Моля, въведете име на получателя за A1POST доставка.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_phone'] ) ) {
+				wc_add_notice( 'Моля, въведете телефон за A1POST доставка.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_email'] ) || ! is_email( $selection['a1post_email'] ) ) {
+				wc_add_notice( 'Моля, въведете валиден имейл за A1POST доставка.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_city'] ) ) {
+				wc_add_notice( 'Моля, въведете град за A1POST доставка.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_postcode'] ) ) {
+				wc_add_notice( 'Моля, въведете пощенски код за A1POST доставка.', 'error' );
+			}
+
+			if ( empty( $selection['a1post_address_1'] ) ) {
+				wc_add_notice( 'Моля, въведете адрес за A1POST доставка.', 'error' );
+			}
+		}
+
 	}
 
 	/**
@@ -181,6 +335,11 @@ class Sameday_Checkout {
 	 */
 	public function save_order_meta( $order_id ) {
 		$selection = $this->sanitize_delivery_selection( $_POST );
+		$selection = $this->apply_single_option_defaults(
+			$selection,
+			$this->get_enabled_provider_options(),
+			$this->get_enabled_services_by_provider()
+		);
 
 		if ( empty( $selection['provider'] ) || empty( $selection['service'] ) ) {
 			return;
@@ -198,7 +357,18 @@ class Sameday_Checkout {
 		update_post_meta( $order_id, '_sameday_delivery_service', $selection['service'] );
 		update_post_meta( $order_id, '_sameday_delivery_service_label', $service['label'] );
 		update_post_meta( $order_id, '_sameday_delivery_details', $selection['details'] );
-		update_post_meta( $order_id, '_sameday_delivery_price', $this->price_calculator->calculate_service_price( $selection['service'], $this->get_cart_weight(), $this->get_cart_subtotal() ) );
+
+		$context        = $this->get_delivery_context();
+		$cart_subtotal  = $this->get_cart_subtotal();
+		$delivery_price = $this->price_calculator->calculate_service_price( $selection['service'], $this->get_cart_weight(), $cart_subtotal, $context );
+
+		update_post_meta( $order_id, '_sameday_delivery_price', $delivery_price );
+
+		$free_shipping_reason = $this->price_calculator->get_free_shipping_reason( $selection['service'], $cart_subtotal, $context );
+
+		if ( '' !== $free_shipping_reason ) {
+			update_post_meta( $order_id, '_sameday_free_shipping_reason', $free_shipping_reason );
+		}
 
 		if ( 'sameday_easybox' === $selection['service'] && ! empty( $selection['easybox_location'] ) ) {
 			update_post_meta( $order_id, '_sameday_easybox_city', $selection['easybox_city'] );
@@ -219,6 +389,22 @@ class Sameday_Checkout {
 		if ( 'speedy_door' === $selection['service'] ) {
 			update_post_meta( $order_id, '_sameday_speedy_door_city', $selection['speedy_door_city'] );
 			update_post_meta( $order_id, '_sameday_speedy_door_address', $selection['speedy_door_address'] );
+		}
+
+		if ( 'a1post_international' === $selection['service'] ) {
+			$zone = A1post_Tariff::get_zone_for_country( $selection['a1post_country'] );
+
+			update_post_meta( $order_id, '_sameday_a1post_country', $selection['a1post_country'] );
+			update_post_meta( $order_id, '_sameday_a1post_zone', is_array( $zone ) ? $zone['code'] : '' );
+			update_post_meta( $order_id, '_sameday_a1post_name', $selection['a1post_name'] );
+			update_post_meta( $order_id, '_sameday_a1post_phone', $selection['a1post_phone'] );
+			update_post_meta( $order_id, '_sameday_a1post_email', $selection['a1post_email'] );
+			update_post_meta( $order_id, '_sameday_a1post_address_1', $selection['a1post_address_1'] );
+			update_post_meta( $order_id, '_sameday_a1post_address_2', $selection['a1post_address_2'] );
+			update_post_meta( $order_id, '_sameday_a1post_city', $selection['a1post_city'] );
+			update_post_meta( $order_id, '_sameday_a1post_state', $selection['a1post_state'] );
+			update_post_meta( $order_id, '_sameday_a1post_postcode', $selection['a1post_postcode'] );
+			update_post_meta( $order_id, '_sameday_a1post_notes', $selection['a1post_notes'] );
 		}
 	}
 
@@ -247,7 +433,20 @@ class Sameday_Checkout {
 			return;
 		}
 
-		$amount = $this->price_calculator->calculate_service_price( $selection['service'], $this->get_cart_weight(), $this->get_cart_subtotal( $cart ) );
+		// A provider that is no longer valid for the destination must not be charged.
+		$provider_options = $this->get_enabled_provider_options();
+		$provider         = $this->price_calculator->get_service_provider( $selection['service'] );
+
+		if ( '' === $provider || ! isset( $provider_options[ $provider ] ) ) {
+			return;
+		}
+
+		$amount = $this->price_calculator->calculate_service_price(
+			$selection['service'],
+			$this->get_cart_weight(),
+			$this->get_cart_subtotal( $cart ),
+			$this->get_delivery_context()
+		);
 
 		if ( $amount <= 0 ) {
 			return;
@@ -311,6 +510,16 @@ class Sameday_Checkout {
 			'speedy_location'      => 0,
 			'speedy_door_city'     => '',
 			'speedy_door_address'  => '',
+			'a1post_country'       => '',
+			'a1post_name'          => '',
+			'a1post_phone'         => '',
+			'a1post_email'         => '',
+			'a1post_address_1'     => '',
+			'a1post_address_2'     => '',
+			'a1post_city'          => '',
+			'a1post_state'         => '',
+			'a1post_postcode'      => '',
+			'a1post_notes'         => '',
 		);
 	}
 
@@ -335,6 +544,15 @@ class Sameday_Checkout {
 		$selection['speedy_location']      = isset( $data['sameday_speedy_location'] ) ? absint( wp_unslash( $data['sameday_speedy_location'] ) ) : 0;
 		$selection['speedy_door_city']     = isset( $data['speedy_door_city'] ) ? sanitize_text_field( wp_unslash( $data['speedy_door_city'] ) ) : '';
 		$selection['speedy_door_address']  = isset( $data['speedy_door_address'] ) ? sanitize_text_field( wp_unslash( $data['speedy_door_address'] ) ) : '';
+		$selection['a1post_name']          = isset( $data['a1post_name'] ) ? sanitize_text_field( wp_unslash( $data['a1post_name'] ) ) : '';
+		$selection['a1post_phone']         = isset( $data['a1post_phone'] ) ? sanitize_text_field( wp_unslash( $data['a1post_phone'] ) ) : '';
+		$selection['a1post_email']         = isset( $data['a1post_email'] ) ? sanitize_email( wp_unslash( $data['a1post_email'] ) ) : '';
+		$selection['a1post_address_1']     = isset( $data['a1post_address_1'] ) ? sanitize_text_field( wp_unslash( $data['a1post_address_1'] ) ) : '';
+		$selection['a1post_address_2']     = isset( $data['a1post_address_2'] ) ? sanitize_text_field( wp_unslash( $data['a1post_address_2'] ) ) : '';
+		$selection['a1post_city']          = isset( $data['a1post_city'] ) ? sanitize_text_field( wp_unslash( $data['a1post_city'] ) ) : '';
+		$selection['a1post_state']         = isset( $data['a1post_state'] ) ? sanitize_text_field( wp_unslash( $data['a1post_state'] ) ) : '';
+		$selection['a1post_postcode']      = isset( $data['a1post_postcode'] ) ? sanitize_text_field( wp_unslash( $data['a1post_postcode'] ) ) : '';
+		$selection['a1post_notes']         = isset( $data['a1post_notes'] ) ? sanitize_textarea_field( wp_unslash( $data['a1post_notes'] ) ) : '';
 
 		$provider_options = $this->get_enabled_provider_options();
 
@@ -394,6 +612,130 @@ class Sameday_Checkout {
 		} else {
 			$selection['speedy_door_city']    = '';
 			$selection['speedy_door_address'] = '';
+		}
+
+		if ( 'a1post_international' === $selection['service'] ) {
+			$selection['a1post_country'] = $this->get_destination_country();
+			$selection                  = $this->fill_a1post_fallbacks( $selection, $data );
+			$selection['details']        = $this->format_a1post_details( $data, $selection['a1post_country'] );
+		} else {
+			$selection['a1post_country'] = '';
+		}
+
+		return $selection;
+	}
+
+	/**
+	 * Build the A1POST delivery details from the checkout address.
+	 *
+	 * A1POST ships to the regular shipping address, so no extra fields are
+	 * collected - we only mirror the address into the order meta and emails.
+	 *
+	 * @param array  $data    Raw posted data.
+	 * @param string $country Destination country.
+	 * @return string
+	 */
+	private function format_a1post_details( $data, $country ) {
+		$ship_to_different = ! empty( $data['ship_to_different_address'] );
+		$prefix            = $ship_to_different ? 'shipping_' : 'billing_';
+		$field             = function ( $key ) use ( $data, $prefix ) {
+			return isset( $data[ $prefix . $key ] ) ? sanitize_text_field( wp_unslash( $data[ $prefix . $key ] ) ) : '';
+		};
+
+		$a1post = $this->fill_a1post_fallbacks( $this->get_selection_defaults(), $data );
+		$address = trim( $a1post['a1post_address_1'] . ' ' . $a1post['a1post_address_2'] );
+		$city    = $a1post['a1post_city'];
+		$postode = $a1post['a1post_postcode'];
+
+		if ( '' === $address && function_exists( 'WC' ) && WC()->customer ) {
+			$address = trim( (string) WC()->customer->get_shipping_address_1() . ' ' . (string) WC()->customer->get_shipping_address_2() );
+			$city    = '' !== $city ? $city : (string) WC()->customer->get_shipping_city();
+			$postode = '' !== $postode ? $postode : (string) WC()->customer->get_shipping_postcode();
+		}
+
+		$country_label = $country;
+
+		if ( function_exists( 'WC' ) && WC()->countries ) {
+			$countries = WC()->countries->get_countries();
+
+			if ( isset( $countries[ $country ] ) ) {
+				$country_label = $countries[ $country ];
+			}
+		}
+
+		$parts = array_filter(
+			array(
+				'' !== $country_label ? 'Държава: ' . $country_label : '',
+				'' !== $postode ? 'Пощенски код: ' . $postode : '',
+				'' !== $city ? 'Населено място: ' . $city : '',
+				'' !== $address ? 'Адрес: ' . $address : '',
+				'' !== $a1post['a1post_name'] ? 'Получател: ' . $a1post['a1post_name'] : '',
+				'' !== $a1post['a1post_phone'] ? 'Телефон: ' . $a1post['a1post_phone'] : '',
+				'' !== $a1post['a1post_email'] ? 'Имейл: ' . $a1post['a1post_email'] : '',
+				'' !== $a1post['a1post_notes'] ? 'Уточнения: ' . $a1post['a1post_notes'] : '',
+			)
+		);
+
+		return implode( "\n", $parts );
+	}
+
+	/**
+	 * Fill A1POST fields from standard WooCommerce checkout fields when present.
+	 *
+	 * @param array<string, string|int> $selection Current selection.
+	 * @param array                     $data      Posted checkout data.
+	 * @return array<string, string|int>
+	 */
+	private function fill_a1post_fallbacks( $selection, $data ) {
+		$ship_to_different = ! empty( $data['ship_to_different_address'] );
+		$prefix            = $ship_to_different ? 'shipping_' : 'billing_';
+		$get               = function ( $key ) use ( $data, $prefix ) {
+			if ( isset( $data[ 'a1post_' . $key ] ) && '' !== trim( (string) $data[ 'a1post_' . $key ] ) ) {
+				return sanitize_text_field( wp_unslash( $data[ 'a1post_' . $key ] ) );
+			}
+
+			if ( isset( $data[ $prefix . $key ] ) && '' !== trim( (string) $data[ $prefix . $key ] ) ) {
+				return sanitize_text_field( wp_unslash( $data[ $prefix . $key ] ) );
+			}
+
+			if ( 'shipping_' !== $prefix && isset( $data[ 'shipping_' . $key ] ) && '' !== trim( (string) $data[ 'shipping_' . $key ] ) ) {
+				return sanitize_text_field( wp_unslash( $data[ 'shipping_' . $key ] ) );
+			}
+
+			return '';
+		};
+
+		$first = $get( 'first_name' );
+		$last  = $get( 'last_name' );
+
+		if ( empty( $selection['a1post_name'] ) ) {
+			$selection['a1post_name'] = trim( $first . ' ' . $last );
+		}
+
+		if ( empty( $selection['a1post_phone'] ) && isset( $data['billing_phone'] ) ) {
+			$selection['a1post_phone'] = sanitize_text_field( wp_unslash( $data['billing_phone'] ) );
+		}
+
+		if ( empty( $selection['a1post_email'] ) && isset( $data['billing_email'] ) ) {
+			$selection['a1post_email'] = sanitize_email( wp_unslash( $data['billing_email'] ) );
+		}
+
+		$map = array(
+			'a1post_address_1' => 'address_1',
+			'a1post_address_2' => 'address_2',
+			'a1post_city'      => 'city',
+			'a1post_state'     => 'state',
+			'a1post_postcode'  => 'postcode',
+		);
+
+		foreach ( $map as $selection_key => $field_key ) {
+			if ( empty( $selection[ $selection_key ] ) ) {
+				$selection[ $selection_key ] = $get( $field_key );
+			}
+		}
+
+		if ( empty( $selection['a1post_notes'] ) && isset( $data['a1post_notes'] ) ) {
+			$selection['a1post_notes'] = sanitize_textarea_field( wp_unslash( $data['a1post_notes'] ) );
 		}
 
 		return $selection;
@@ -501,6 +843,9 @@ class Sameday_Checkout {
 
 			case 'speedy_door':
 				return ! empty( $selection['speedy_door_city'] ) && ! empty( $selection['speedy_door_address'] );
+
+			case 'a1post_international':
+				return true;
 		}
 
 		return false;
@@ -546,9 +891,21 @@ class Sameday_Checkout {
 	 */
 	private function get_enabled_provider_options() {
 		$options = $this->price_calculator->get_provider_options();
+		$country = $this->get_destination_country();
 
 		foreach ( array_keys( $options ) as $provider ) {
 			if ( ! sameday_is_provider_enabled( $provider ) ) {
+				unset( $options[ $provider ] );
+				continue;
+			}
+
+			// Speedy / Sameday are domestic only, A1POST is offered abroad only.
+			if ( ! sameday_provider_supports_country( $provider, $country ) ) {
+				unset( $options[ $provider ] );
+				continue;
+			}
+
+			if ( 'a1post' === $provider && ! A1post_Tariff::supports_country( $country ) ) {
 				unset( $options[ $provider ] );
 			}
 		}
@@ -562,10 +919,11 @@ class Sameday_Checkout {
 	 * @return array<string, array<string, array<string, string>>>
 	 */
 	private function get_enabled_services_by_provider() {
-		$services = $this->price_calculator->get_services_grouped_by_provider();
+		$services         = $this->price_calculator->get_services_grouped_by_provider();
+		$provider_options = $this->get_enabled_provider_options();
 
 		foreach ( array_keys( $services ) as $provider ) {
-			if ( ! sameday_is_provider_enabled( $provider ) ) {
+			if ( ! isset( $provider_options[ $provider ] ) ) {
 				unset( $services[ $provider ] );
 			}
 		}
@@ -584,6 +942,33 @@ class Sameday_Checkout {
 		$services = $this->get_enabled_services_by_provider();
 
 		return ! empty( $provider ) && ! empty( $service ) && isset( $services[ $provider ][ $service ] );
+	}
+
+	/**
+	 * Auto-select the only available provider/service.
+	 *
+	 * This keeps international checkout simple: when A1POST is the only valid
+	 * option outside Bulgaria, customers do not have to make an extra choice.
+	 *
+	 * @param array<string, string|int>                    $selection Selection.
+	 * @param array<string, string>                        $providers Providers.
+	 * @param array<string, array<string, array<string,string>>> $services Services by provider.
+	 * @return array<string, string|int>
+	 */
+	private function apply_single_option_defaults( $selection, $providers, $services ) {
+		if ( empty( $selection['provider'] ) && 1 === count( $providers ) ) {
+			$selection['provider'] = (string) key( $providers );
+		}
+
+		if ( ! empty( $selection['provider'] ) && empty( $selection['service'] ) && ! empty( $services[ $selection['provider'] ] ) && 1 === count( $services[ $selection['provider'] ] ) ) {
+			$selection['service'] = (string) key( $services[ $selection['provider'] ] );
+		}
+
+		if ( 'a1post_international' === $selection['service'] ) {
+			$selection['a1post_country'] = $this->get_destination_country();
+		}
+
+		return $selection;
 	}
 
 	/**

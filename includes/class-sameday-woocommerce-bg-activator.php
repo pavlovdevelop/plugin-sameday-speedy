@@ -19,7 +19,8 @@ class Sameday_Woocommerce_Bg_Activator {
 	 * @since    1.0.0
 	 */
 	public static function activate() {
-
+		require_once plugin_dir_path( __FILE__ ) . 'class-speedy-rate-cache.php';
+		Speedy_Rate_Cache::schedule_cron();
 	}
 
 }

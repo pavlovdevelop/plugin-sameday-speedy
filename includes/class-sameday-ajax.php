@@ -43,6 +43,46 @@ class Sameday_Ajax {
 		add_action( 'wp_ajax_nopriv_get_speedy_cities', array( $this, 'get_speedy_cities' ) );
 		add_action( 'wp_ajax_get_speedy_locations', array( $this, 'get_speedy_locations' ) );
 		add_action( 'wp_ajax_nopriv_get_speedy_locations', array( $this, 'get_speedy_locations' ) );
+		add_action( 'wp_ajax_sameday_refresh_delivery_fields', array( $this, 'refresh_delivery_fields' ) );
+		add_action( 'wp_ajax_nopriv_sameday_refresh_delivery_fields', array( $this, 'refresh_delivery_fields' ) );
+	}
+
+	/**
+	 * Verify the checkout nonce without killing the request.
+	 *
+	 * Every endpoint below returns the public office / locker catalogue or
+	 * re-renders the delivery selector - nothing private, nothing written. A
+	 * hard check_ajax_referer() turns any stale nonce into an empty dropdown,
+	 * and on a cached checkout page the nonce is stale by design, so the check
+	 * stays advisory here.
+	 *
+	 * @return bool
+	 */
+	private function verify_request() {
+		return (bool) check_ajax_referer( 'sameday_ajax_nonce', 'security', false );
+	}
+
+	/**
+	 * Re-render the delivery selector for a different destination country.
+	 *
+	 * The selector lives inside the billing form, which WooCommerce does not
+	 * refresh on "update_checkout", so the country switch is handled here.
+	 *
+	 * @return void
+	 */
+	public function refresh_delivery_fields() {
+		$this->verify_request();
+
+		$country  = isset( $_REQUEST['country'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['country'] ) ) : '';
+		$country  = strtoupper( preg_replace( '/[^A-Za-z]/', '', $country ) );
+		$checkout = new Sameday_Checkout();
+
+		wp_send_json_success(
+			array(
+				'country' => $country,
+				'html'    => $checkout->get_delivery_fields_markup( $country ),
+			)
+		);
 	}
 
 	/**
@@ -51,7 +91,7 @@ class Sameday_Ajax {
 	 * @return void
 	 */
 	public function get_easybox_cities() {
-		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+		$this->verify_request();
 
 		$cities = $this->location_repository->get_all_cities();
 		$meta   = $this->location_repository->get_sync_meta();
@@ -59,9 +99,31 @@ class Sameday_Ajax {
 		wp_send_json_success(
 			array(
 				'cities' => $cities,
-				'meta'   => $meta,
+				'meta'   => $this->with_empty_state_message( $meta, $cities ),
 			)
 		);
+	}
+
+	/**
+	 * Explain an empty list instead of showing a silent empty dropdown.
+	 *
+	 * A cold cache on a fresh install has no error to report yet, so without
+	 * this the customer just sees a picker with nothing in it.
+	 *
+	 * @param array<string, mixed> $meta   Sync metadata.
+	 * @param array<int, mixed>    $cities Returned cities.
+	 * @return array<string, mixed>
+	 */
+	private function with_empty_state_message( $meta, $cities ) {
+		if ( ! empty( $cities ) ) {
+			return $meta;
+		}
+
+		if ( empty( $meta['last_error'] ) ) {
+			$meta['last_error'] = 'Списъкът с населени места още не е зареден. Опитайте отново след минута или го синхронизирайте от администрацията.';
+		}
+
+		return $meta;
 	}
 
 	/**
@@ -70,7 +132,7 @@ class Sameday_Ajax {
 	 * @return void
 	 */
 	public function get_easybox_locations() {
-		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+		$this->verify_request();
 
 		$city   = isset( $_REQUEST['city'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['city'] ) ) : '';
 		$search = isset( $_REQUEST['search'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['search'] ) ) : '';
@@ -94,7 +156,7 @@ class Sameday_Ajax {
 	 * @return void
 	 */
 	public function get_speedy_cities() {
-		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+		$this->verify_request();
 
 		$cities = $this->speedy_location_repository->get_all_cities();
 		$meta   = $this->speedy_location_repository->get_sync_meta();
@@ -102,7 +164,7 @@ class Sameday_Ajax {
 		wp_send_json_success(
 			array(
 				'cities' => $cities,
-				'meta'   => $meta,
+				'meta'   => $this->with_empty_state_message( $meta, $cities ),
 			)
 		);
 	}
@@ -113,7 +175,7 @@ class Sameday_Ajax {
 	 * @return void
 	 */
 	public function get_speedy_locations() {
-		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+		$this->verify_request();
 
 		$city_id = isset( $_REQUEST['city_id'] ) ? absint( wp_unslash( $_REQUEST['city_id'] ) ) : 0;
 		$type    = isset( $_REQUEST['type'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['type'] ) ) : 'all';

@@ -152,6 +152,28 @@ class Sameday_Woocommerce_Bg {
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-location-repository.php';
 
 		/**
+		 * Speedy API integration: client + settings + shipment workflow + admin.
+		 */
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-api-client.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-settings.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-shipment-manager.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-rate-cache.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-speedy-admin.php';
+
+		/**
+		 * A1POST international delivery: tariff + settings screen.
+		 */
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-api-client.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-tariff.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-shipment-manager.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-admin.php';
+
+		/**
+		 * Order e-mail diagnostics screen.
+		 */
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-sameday-mail-diagnostics.php';
+
+		/**
 		 * The class responsible for price calculation.
 		 */
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-sameday-price-calculator.php';
@@ -261,6 +283,18 @@ class Sameday_Woocommerce_Bg {
 		new Sameday_Ajax();
 		new Sameday_Order_Meta();
 
+		$speedy_admin = new Speedy_Admin();
+		$speedy_admin->register();
+
+		$a1post_admin = new A1post_Admin();
+		$a1post_admin->register();
+
+		$mail_diagnostics = new Sameday_Mail_Diagnostics();
+		$mail_diagnostics->register();
+
+		Speedy_Rate_Cache::register_cron_handler();
+		Speedy_Location_Repository::register_cron_handler();
+		Sameday_Location_Repository::register_cron_handler();
 	}
 
 	/**

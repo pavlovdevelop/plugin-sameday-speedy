@@ -9,6 +9,9 @@ jQuery(function($) {
 	var speedyCitiesLoaded = false;
 	var speedyLocationsRequest = null;
 	var speedyLocationsMap = {};
+	var deliveryFieldsRequest = null;
+	var lastRenderedCountry = '';
+	var lastPaymentMethod = '';
 
 	if (!checkoutConfig) {
 		return;
@@ -34,6 +37,117 @@ jQuery(function($) {
 
 	function getCartSubtotal() {
 		return Number(checkoutConfig.cartSubtotal || $('#sameday_cart_subtotal').val() || 0);
+	}
+
+	function getSelectedPaymentMethod() {
+		return $('input[name="payment_method"]:checked').val() || '';
+	}
+
+	function getCardFreeShippingConfig() {
+		return (checkoutConfig.config && checkoutConfig.config.cardFreeShipping) || {};
+	}
+
+	function isCardPaymentMethod(method) {
+		var config = getCardFreeShippingConfig();
+		var gateways = config.gateways || [];
+		var i;
+
+		if (!method) {
+			return false;
+		}
+
+		for (i = 0; i < gateways.length; i += 1) {
+			if (String(gateways[i]).toLowerCase() === String(method).toLowerCase()) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	function getFreeShippingConfig() {
+		return (checkoutConfig.config && checkoutConfig.config.freeShipping) || {};
+	}
+
+	// International shipping is never free, and the order value rules only
+	// cover the destinations inside the configured free shipping scope.
+	function isFreeShippingEligible(serviceCode) {
+		var config = getFreeShippingConfig();
+		var definition = getServiceDefinition(serviceCode);
+		var excluded = config.excludedProviders || [];
+		var countries = config.countries || [];
+		var country = getDeliveryCountry();
+		var i;
+
+		if (!definition || !definition.provider) {
+			return false;
+		}
+
+		for (i = 0; i < excluded.length; i += 1) {
+			if (String(excluded[i]) === String(definition.provider)) {
+				return false;
+			}
+		}
+
+		if (config.countryScope === 'all') {
+			return true;
+		}
+
+		for (i = 0; i < countries.length; i += 1) {
+			if (String(countries[i]).toUpperCase() === country) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	function hasCardFreeShipping(serviceCode) {
+		var config = getCardFreeShippingConfig();
+		var threshold = Number(config.threshold || 0);
+
+		if (!config.enabled || threshold <= 0) {
+			return false;
+		}
+
+		if (!isFreeShippingEligible(serviceCode)) {
+			return false;
+		}
+
+		if (getCartSubtotal() < threshold) {
+			return false;
+		}
+
+		if (config.scope === 'pickup' && !isFreeShippingService(serviceCode)) {
+			return false;
+		}
+
+		if (config.paymentScope === 'all') {
+			return true;
+		}
+
+		return isCardPaymentMethod(getSelectedPaymentMethod());
+	}
+
+	function getDeliveryCountry() {
+		var fromField = $('#sameday_delivery_country').val();
+
+		if (fromField) {
+			return String(fromField).toUpperCase();
+		}
+
+		return String((checkoutConfig.config && checkoutConfig.config.country) || '').toUpperCase();
+	}
+
+	function getCheckoutCountry() {
+		var shipToDifferent = $('#ship-to-different-address-checkbox').is(':checked');
+		var country = shipToDifferent ? $('#shipping_country').val() : $('#billing_country').val();
+
+		if (!country) {
+			country = $('#billing_country').val() || '';
+		}
+
+		return String(country || '').toUpperCase();
 	}
 
 	function getEasyboxCity() {
@@ -66,6 +180,15 @@ jQuery(function($) {
 
 	function getSpeedyDoorAddress() {
 		return $.trim($('#speedy_door_address').val() || '');
+	}
+
+	function getA1postRequiredFieldsComplete() {
+		return !!($.trim($('#a1post_name').val() || '') &&
+			$.trim($('#a1post_phone').val() || '') &&
+			$.trim($('#a1post_email').val() || '') &&
+			$.trim($('#a1post_address_1').val() || '') &&
+			$.trim($('#a1post_city').val() || '') &&
+			$.trim($('#a1post_postcode').val() || ''));
 	}
 
 	function getSpeedyLocationType(serviceCode) {
@@ -119,6 +242,14 @@ jQuery(function($) {
 
 	function hasFreeShipping(serviceCode) {
 		var threshold = getFreeShippingThreshold(serviceCode);
+
+		if (!isFreeShippingEligible(serviceCode)) {
+			return false;
+		}
+
+		if (hasCardFreeShipping(serviceCode)) {
+			return true;
+		}
 
 		return isFreeShippingService(serviceCode) && threshold > 0 && getCartSubtotal() >= threshold;
 	}
@@ -202,6 +333,49 @@ jQuery(function($) {
 		return convertBgnToEur(price);
 	}
 
+	function calculateA1postPrice(weight) {
+		var pricing = (checkoutConfig.config.pricing && checkoutConfig.config.pricing.a1post) || {};
+		var zones = pricing.zones || [];
+		var country = getDeliveryCountry();
+		var fallback = null;
+		var zone = null;
+		var includedWeight;
+		var price;
+		var i;
+
+		for (i = 0; i < zones.length; i += 1) {
+			if (!zones[i].countries || !zones[i].countries.length) {
+				if (!fallback) {
+					fallback = zones[i];
+				}
+
+				continue;
+			}
+
+			if ($.inArray(country, zones[i].countries) !== -1) {
+				zone = zones[i];
+				break;
+			}
+		}
+
+		if (!zone) {
+			zone = fallback;
+		}
+
+		if (!zone) {
+			return 0;
+		}
+
+		includedWeight = Number(zone.includedWeight || 0);
+		price = Number(zone.base || 0);
+
+		if (weight > includedWeight) {
+			price += Math.ceil(weight - includedWeight) * Number(zone.extraKg || 0);
+		}
+
+		return price;
+	}
+
 	function calculatePrice(serviceCode) {
 		var weight = Number(checkoutConfig.cartWeight || $('#sameday_cart_weight').val() || 0);
 
@@ -215,6 +389,10 @@ jQuery(function($) {
 
 		if (serviceCode.indexOf('sameday_') === 0) {
 			return calculateSamedayPrice(serviceCode, weight);
+		}
+
+		if (serviceCode.indexOf('a1post') === 0) {
+			return calculateA1postPrice(weight);
 		}
 
 		return calculateSpeedyPrice(serviceCode, weight);
@@ -661,6 +839,9 @@ jQuery(function($) {
 
 			case 'speedy_door':
 				return !!getSpeedyDoorCity() && !!getSpeedyDoorAddress();
+
+			case 'a1post_international':
+				return true;
 		}
 
 		return false;
@@ -673,20 +854,27 @@ jQuery(function($) {
 		var $samedayDoorFields = $('.sameday-door-fields');
 		var $speedyLocationSelector = $('.speedy-location-selector');
 		var $speedyDoorFields = $('.speedy-door-fields');
+		var $a1postFields = $('.a1post-fields');
 
-		if (!definition) {
+		function showOnly($visible) {
 			$easyboxSelector.addClass('is-hidden');
 			$samedayDoorFields.addClass('is-hidden');
 			$speedyLocationSelector.addClass('is-hidden');
 			$speedyDoorFields.addClass('is-hidden');
+			$a1postFields.addClass('is-hidden');
+
+			if ($visible) {
+				$visible.removeClass('is-hidden');
+			}
+		}
+
+		if (!definition) {
+			showOnly(null);
 			return;
 		}
 
 		if (serviceCode === 'sameday_easybox') {
-			$easyboxSelector.removeClass('is-hidden');
-			$samedayDoorFields.addClass('is-hidden');
-			$speedyLocationSelector.addClass('is-hidden');
-			$speedyDoorFields.addClass('is-hidden');
+			showOnly($easyboxSelector);
 			ensureEasyboxCitiesLoaded();
 			enhanceEasyboxCitySelect();
 			enhanceEasyboxLocationSelect();
@@ -694,18 +882,12 @@ jQuery(function($) {
 		}
 
 		if (serviceCode === 'sameday_door') {
-			$easyboxSelector.addClass('is-hidden');
-			$samedayDoorFields.removeClass('is-hidden');
-			$speedyLocationSelector.addClass('is-hidden');
-			$speedyDoorFields.addClass('is-hidden');
+			showOnly($samedayDoorFields);
 			return;
 		}
 
 		if (isSpeedyLocationService(serviceCode)) {
-			$easyboxSelector.addClass('is-hidden');
-			$samedayDoorFields.addClass('is-hidden');
-			$speedyLocationSelector.removeClass('is-hidden');
-			$speedyDoorFields.addClass('is-hidden');
+			showOnly($speedyLocationSelector);
 			ensureSpeedyCitiesLoaded();
 			enhanceSpeedyCitySelect();
 			enhanceSpeedyLocationSelect();
@@ -714,17 +896,16 @@ jQuery(function($) {
 		}
 
 		if (serviceCode === 'speedy_door') {
-			$easyboxSelector.addClass('is-hidden');
-			$samedayDoorFields.addClass('is-hidden');
-			$speedyLocationSelector.addClass('is-hidden');
-			$speedyDoorFields.removeClass('is-hidden');
+			showOnly($speedyDoorFields);
 			return;
 		}
 
-		$easyboxSelector.addClass('is-hidden');
-		$samedayDoorFields.addClass('is-hidden');
-		$speedyLocationSelector.addClass('is-hidden');
-		$speedyDoorFields.addClass('is-hidden');
+		if (serviceCode === 'a1post_international') {
+			showOnly($a1postFields);
+			return;
+		}
+
+		showOnly(null);
 	}
 
 	function updateProviderVisibility() {
@@ -760,7 +941,12 @@ jQuery(function($) {
 			$summary
 				.removeClass('is-hidden has-price')
 				.addClass('is-free-shipping')
-				.html('<strong>' + checkoutConfig.strings.freeShipping + '</strong>');
+				.html(
+					'<strong>' + checkoutConfig.strings.freeShipping + '</strong>' +
+					(hasCardFreeShipping(serviceCode) && getCardFreeShippingConfig().paymentScope !== 'all'
+						? '<span class="sameday-free-shipping-reason">' + checkoutConfig.strings.freeShippingCard + '</span>'
+						: '')
+				);
 			return;
 		}
 
@@ -853,9 +1039,104 @@ jQuery(function($) {
 		triggerCheckoutUpdate();
 	});
 
+	$(document.body).on('input change', '#a1post_name, #a1post_phone, #a1post_email, #a1post_address_1, #a1post_address_2, #a1post_city, #a1post_state, #a1post_postcode, #a1post_notes', function() {
+		updateSummary();
+		triggerCheckoutUpdate();
+	});
+
+	// The delivery box is rendered inside the billing form, which WooCommerce
+	// does not refresh on "update_checkout" - so the country switch is handled
+	// by re-rendering the box from the server.
+	function reloadDeliveryFields() {
+		var country = getCheckoutCountry();
+		var $wrapper = $('#sameday-delivery-fields');
+
+		if (!$wrapper.length || !country || country === lastRenderedCountry) {
+			return;
+		}
+
+		lastRenderedCountry = country;
+
+		if (deliveryFieldsRequest && deliveryFieldsRequest.readyState !== 4) {
+			deliveryFieldsRequest.abort();
+		}
+
+		$wrapper.addClass('is-loading');
+
+		deliveryFieldsRequest = $.ajax({
+			url: checkoutConfig.ajaxUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: {
+				action: 'sameday_refresh_delivery_fields',
+				security: checkoutConfig.nonce,
+				country: country
+			}
+		}).done(function(response) {
+			var $current = $('#sameday-delivery-fields');
+
+			if (!response || !response.success || !response.data) {
+				$current.removeClass('is-loading');
+				return;
+			}
+
+			easyboxCitiesLoaded = false;
+			speedyCitiesLoaded = false;
+			easyboxLocationsMap = {};
+			speedyLocationsMap = {};
+
+			if (!$.trim(response.data.html)) {
+				$current.removeClass('is-loading').html('');
+			} else if ($current.length) {
+				$current.replaceWith(response.data.html);
+			}
+
+			refreshDeliveryUi();
+			triggerCheckoutUpdate();
+		}).fail(function(xhr, status) {
+			if (status !== 'abort') {
+				$('#sameday-delivery-fields').removeClass('is-loading');
+				lastRenderedCountry = '';
+			}
+		});
+	}
+
+	// WooCommerce does not recalculate the totals when the payment method
+	// changes, so the delivery fee has to be refreshed explicitly - otherwise
+	// the order review keeps showing a shipping charge that no longer applies.
+	//
+	// "payment_method_selected" is re-fired by WooCommerce after every
+	// "updated_checkout", so the refresh runs only on a real change - otherwise
+	// the two events would keep triggering each other.
+	function handlePaymentMethodChange() {
+		var method = getSelectedPaymentMethod();
+
+		updateSummary();
+
+		if (method === lastPaymentMethod) {
+			return;
+		}
+
+		lastPaymentMethod = method;
+		triggerCheckoutUpdate();
+	}
+
+	$(document.body).on('change', 'input[name="payment_method"]', handlePaymentMethodChange);
+	$(document.body).on('payment_method_selected', handlePaymentMethodChange);
+
+	$(document.body).on('change', '#billing_country, #shipping_country, #ship-to-different-address-checkbox', function() {
+		reloadDeliveryFields();
+	});
+
+	$(document.body).on('country_to_state_changed', function() {
+		reloadDeliveryFields();
+	});
+
 	$(document.body).on('updated_checkout', function() {
 		refreshDeliveryUi();
 	});
 
+	lastRenderedCountry = getDeliveryCountry();
+	lastPaymentMethod = getSelectedPaymentMethod();
 	refreshDeliveryUi();
 });

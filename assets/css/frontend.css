@@ -261,6 +261,33 @@
 	display: none;
 }
 
+.sameday-free-shipping-reason {
+	display: block;
+	margin-top: 6px;
+	font-size: 14px;
+	font-weight: 500;
+}
+
+.sameday-card-free-shipping-hint {
+	margin: 10px 0 0;
+	padding: 10px 14px;
+	border-radius: 8px;
+	border: 1px dashed #0b7a3b;
+	background: #f4fff8;
+	color: #0b4f2a;
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+.a1post-fields.is-hidden {
+	display: none;
+}
+
+.sameday-delivery-fields.is-loading {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
 @media (max-width: 767px) {
 	.sameday-provider-grid {
 		grid-template-columns: 1fr;

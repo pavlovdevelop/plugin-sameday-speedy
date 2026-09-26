@@ -1,0 +1,72 @@
+/* Speedy admin meta box layout */
+.speedy-shipment-form .speedy-grid,
+.speedy-shipment-summary .speedy-grid {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.speedy-shipment-form .speedy-grid th,
+.speedy-shipment-summary .speedy-grid th {
+	text-align: left;
+	font-weight: 600;
+	padding: 6px 12px 6px 0;
+	width: 220px;
+	vertical-align: top;
+	color: #1d2327;
+}
+
+.speedy-shipment-form .speedy-grid td,
+.speedy-shipment-summary .speedy-grid td {
+	padding: 6px 0;
+	vertical-align: top;
+}
+
+.speedy-shipment-form .speedy-grid input[type="text"],
+.speedy-shipment-form .speedy-grid input[type="email"],
+.speedy-shipment-form .speedy-grid input[type="number"],
+.speedy-shipment-form .speedy-grid select,
+.speedy-shipment-form .speedy-grid textarea {
+	width: 100%;
+	max-width: 380px;
+}
+
+.speedy-shipment-form .speedy-parcels {
+	width: 100%;
+	max-width: 600px;
+	border-collapse: collapse;
+}
+
+.speedy-shipment-form .speedy-parcels th,
+.speedy-shipment-form .speedy-parcels td {
+	border: 1px solid #dcdcde;
+	padding: 4px 6px;
+	font-weight: 400;
+	font-size: 12px;
+}
+
+.speedy-shipment-form .speedy-parcels th {
+	background: #f6f7f7;
+	font-weight: 600;
+}
+
+.speedy-shipment-form .speedy-parcels input {
+	width: 100%;
+	min-width: 60px;
+}
+
+.speedy-shipment-form .speedy-actions,
+.speedy-shipment-summary .speedy-actions {
+	margin-top: 12px;
+}
+
+.speedy-shipment-summary .speedy-grid a {
+	text-decoration: none;
+}
+
+.speedy-shipment-summary .speedy-grid a:hover {
+	text-decoration: underline;
+}
+
+#speedy-mb-status {
+	margin-left: 12px;
+}

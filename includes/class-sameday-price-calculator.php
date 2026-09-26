@@ -30,6 +30,7 @@ class Sameday_Price_Calculator {
 		return array(
 			'sameday' => 'Доставка със Sameday',
 			'speedy'  => 'Доставка със Спиди',
+			'a1post'  => 'Доставка с A1POST',
 		);
 	}
 
@@ -75,7 +76,29 @@ class Sameday_Price_Calculator {
 				'details_label' => 'Автомат / АПС на Спиди',
 				'placeholder'  => 'Напр. АПС Спиди Park Mall Стара Загора, ниво -1',
 			),
+			'a1post_international' => array(
+				'provider'     => 'a1post',
+				'label'        => $this->get_a1post_service_label(),
+				'rate_label'   => 'A1POST - Международна доставка',
+				'details_label' => 'Адрес за международна доставка',
+				'placeholder'  => 'Адресът от поръчката се използва автоматично',
+			),
 		);
+	}
+
+	/**
+	 * Configurable A1POST service label.
+	 *
+	 * @return string
+	 */
+	private function get_a1post_service_label() {
+		if ( ! class_exists( 'A1post_Tariff' ) ) {
+			return 'Международна доставка с A1POST';
+		}
+
+		$label = (string) A1post_Tariff::get( 'service_label', 'Международна доставка с A1POST' );
+
+		return '' !== $label ? $label : 'Международна доставка с A1POST';
 	}
 
 	/**
@@ -87,6 +110,7 @@ class Sameday_Price_Calculator {
 		$grouped = array(
 			'sameday' => array(),
 			'speedy'  => array(),
+			'a1post'  => array(),
 		);
 
 		foreach ( $this->get_service_definitions() as $service_code => $service_definition ) {
@@ -198,13 +222,60 @@ class Sameday_Price_Calculator {
 	}
 
 	/**
-	 * Check whether the selected service qualifies for free shipping.
+	 * Whether free shipping may be granted for this service at all.
 	 *
-	 * @param string $service_code   Service code.
-	 * @param float  $cart_subtotal  Cart subtotal in store currency.
+	 * International shipping is always charged: the shop pays the carrier per
+	 * destination zone, so no order value makes an A1POST parcel free. On top
+	 * of that the destination country has to be inside the configured free
+	 * shipping scope, which defaults to the shop's own country.
+	 *
+	 * @param string               $service_code Service code.
+	 * @param array<string, mixed> $context      Optional context (country).
 	 * @return bool
 	 */
-	public function qualifies_for_free_shipping( $service_code, $cart_subtotal ) {
+	public function is_free_shipping_eligible( $service_code, $context = array() ) {
+		$provider = $this->get_service_provider( $service_code );
+
+		if ( '' === $provider ) {
+			return false;
+		}
+
+		if ( 'international' === sameday_get_provider_country_scope( $provider ) ) {
+			return false;
+		}
+
+		return sameday_is_free_shipping_country( $this->resolve_country( $context ) );
+	}
+
+	/**
+	 * Check whether the selected service qualifies for free shipping.
+	 *
+	 * Two independent rules can grant it, and both apply only to destinations
+	 * inside the free shipping scope (see is_free_shipping_eligible()):
+	 *
+	 * 1. The order value rule - from a configured order value up. It covers
+	 *    every delivery type unless the scope is limited to pickup, and either
+	 *    card payments only or every payment method including cash on delivery.
+	 * 2. The per-provider threshold - office / locker services only.
+	 *
+	 * @param string               $service_code  Service code.
+	 * @param float                $cart_subtotal Cart subtotal in store currency.
+	 * @param array<string, mixed> $context       Optional context (payment_method, country).
+	 * @return bool
+	 */
+	public function qualifies_for_free_shipping( $service_code, $cart_subtotal, $context = array() ) {
+		if ( ! $this->get_service_definition( $service_code ) ) {
+			return false;
+		}
+
+		if ( ! $this->is_free_shipping_eligible( $service_code, $context ) ) {
+			return false;
+		}
+
+		if ( $this->qualifies_for_card_free_shipping( $service_code, $cart_subtotal, $context ) ) {
+			return true;
+		}
+
 		if ( ! $this->is_free_shipping_service( $service_code ) ) {
 			return false;
 		}
@@ -213,6 +284,80 @@ class Sameday_Price_Calculator {
 		$threshold = $this->get_free_shipping_threshold( $provider );
 
 		return $threshold > 0 && (float) $cart_subtotal >= $threshold;
+	}
+
+	/**
+	 * Check the order value free shipping rule.
+	 *
+	 * Kept under the historic name because the rule started out as
+	 * "free shipping when paying by card"; the payment scope setting now
+	 * decides whether it stays card only or covers cash on delivery too.
+	 *
+	 * @param string               $service_code  Service code.
+	 * @param float                $cart_subtotal Cart subtotal in store currency.
+	 * @param array<string, mixed> $context       Optional context (payment_method, country).
+	 * @return bool
+	 */
+	public function qualifies_for_card_free_shipping( $service_code, $cart_subtotal, $context = array() ) {
+		if ( ! sameday_is_card_free_shipping_enabled() ) {
+			return false;
+		}
+
+		if ( ! $this->is_free_shipping_eligible( $service_code, $context ) ) {
+			return false;
+		}
+
+		$threshold = sameday_get_card_free_shipping_threshold();
+
+		if ( $threshold <= 0 || (float) $cart_subtotal < $threshold ) {
+			return false;
+		}
+
+		if ( 'pickup' === sameday_get_card_free_shipping_scope() && ! $this->is_free_shipping_service( $service_code ) ) {
+			return false;
+		}
+
+		if ( 'all' === sameday_get_free_shipping_payment_scope() ) {
+			return true;
+		}
+
+		$payment_method = isset( $context['payment_method'] ) ? (string) $context['payment_method'] : '';
+
+		return sameday_is_card_payment_method( $payment_method );
+	}
+
+	/**
+	 * Why the current selection is free, if it is.
+	 *
+	 * @param string               $service_code  Service code.
+	 * @param float                $cart_subtotal Cart subtotal in store currency.
+	 * @param array<string, mixed> $context       Optional context (payment_method, country).
+	 * @return string '' | 'card' | 'order_value' | 'threshold'
+	 */
+	public function get_free_shipping_reason( $service_code, $cart_subtotal, $context = array() ) {
+		if ( ! $this->qualifies_for_free_shipping( $service_code, $cart_subtotal, $context ) ) {
+			return '';
+		}
+
+		if ( ! $this->qualifies_for_card_free_shipping( $service_code, $cart_subtotal, $context ) ) {
+			return 'threshold';
+		}
+
+		return 'card' === sameday_get_free_shipping_payment_scope() ? 'card' : 'order_value';
+	}
+
+	/**
+	 * Resolve the destination country from a pricing context.
+	 *
+	 * @param array<string, mixed> $context Pricing context.
+	 * @return string
+	 */
+	private function resolve_country( $context ) {
+		if ( isset( $context['country'] ) && '' !== $context['country'] ) {
+			return strtoupper( (string) $context['country'] );
+		}
+
+		return sameday_get_customer_country();
 	}
 
 	/**
@@ -234,16 +379,34 @@ class Sameday_Price_Calculator {
 	/**
 	 * Calculate the final shipping price for a service.
 	 *
-	 * @param string     $service_code Service code.
-	 * @param float      $weight Order weight in kg.
-	 * @param float|null $cart_subtotal Optional cart subtotal in store currency.
+	 * @param string               $service_code  Service code.
+	 * @param float                $weight        Order weight in kg.
+	 * @param float|null           $cart_subtotal Optional cart subtotal in store currency.
+	 * @param array<string, mixed> $context       Optional context (payment_method, country).
 	 * @return float
 	 */
-	public function calculate_service_price( $service_code, $weight, $cart_subtotal = null ) {
+	public function calculate_service_price( $service_code, $weight, $cart_subtotal = null, $context = array() ) {
 		$weight = max( 0, (float) $weight );
 
-		if ( null !== $cart_subtotal && $this->qualifies_for_free_shipping( $service_code, $cart_subtotal ) ) {
+		if ( null !== $cart_subtotal && $this->qualifies_for_free_shipping( $service_code, $cart_subtotal, $context ) ) {
 			return 0.0;
+		}
+
+		if ( 'a1post_international' === $service_code ) {
+			$country = isset( $context['country'] ) && '' !== $context['country']
+				? (string) $context['country']
+				: sameday_get_customer_country();
+
+			return A1post_Tariff::calculate_price( $country, $weight );
+		}
+
+		// Speedy services prefer the cached API rate (per-contract pricing).
+		if ( in_array( $service_code, array( 'speedy_office', 'speedy_aps', 'speedy_door' ), true ) ) {
+			$api_price = $this->get_cached_speedy_price( $service_code, $weight );
+
+			if ( null !== $api_price ) {
+				return $api_price;
+			}
 		}
 
 		switch ( $service_code ) {
@@ -264,6 +427,36 @@ class Sameday_Price_Calculator {
 		}
 
 		return 0.0;
+	}
+
+	/**
+	 * Look up a cached Speedy API price and return it converted to the
+	 * store currency. Returns null when the cache is empty so the caller
+	 * falls back to the hardcoded tariff.
+	 *
+	 * @param string $service_code Service code.
+	 * @param float  $weight       Cart weight in kg.
+	 * @return float|null
+	 */
+	private function get_cached_speedy_price( $service_code, $weight ) {
+		if ( ! class_exists( 'Speedy_Rate_Cache' ) ) {
+			return null;
+		}
+
+		$amount = Speedy_Rate_Cache::get_rate( $service_code, $weight );
+
+		if ( null === $amount || $amount <= 0 ) {
+			return null;
+		}
+
+		$cache    = Speedy_Rate_Cache::get_cache();
+		$currency = isset( $cache['currency'] ) ? strtoupper( (string) $cache['currency'] ) : 'BGN';
+
+		if ( 'BGN' === $currency ) {
+			return $this->convert_bgn_to_eur( (float) $amount );
+		}
+
+		return round( (float) $amount, 2 );
 	}
 
 	/**
@@ -321,8 +514,24 @@ class Sameday_Price_Calculator {
 			'freeShippingThresholds' => array(
 				'sameday' => $this->get_free_shipping_threshold( 'sameday' ),
 				'speedy'  => $this->get_free_shipping_threshold( 'speedy' ),
+				'a1post'  => $this->get_free_shipping_threshold( 'a1post' ),
 			),
+			'cardFreeShipping' => array(
+				'enabled'      => sameday_is_card_free_shipping_enabled(),
+				'threshold'    => sameday_get_card_free_shipping_threshold(),
+				'scope'        => sameday_get_card_free_shipping_scope(),
+				'paymentScope' => sameday_get_free_shipping_payment_scope(),
+				'gateways'     => sameday_get_card_gateway_ids(),
+			),
+			'freeShipping' => array(
+				'countryScope' => sameday_get_free_shipping_country_scope(),
+				'countries'    => sameday_get_free_shipping_countries(),
+				// Providers that ship abroad are never free, whatever the order value.
+				'excludedProviders' => $this->get_international_providers(),
+			),
+			'country'   => sameday_get_customer_country(),
 			'pricing'   => array(
+				'a1post' => $this->get_a1post_frontend_pricing(),
 				'sameday' => array(
 					'includedWeight' => 3,
 					'easybox'        => array(
@@ -371,6 +580,51 @@ class Sameday_Price_Calculator {
 				),
 			),
 		);
+	}
+
+	/**
+	 * Provider codes that only serve destinations outside the shop country.
+	 *
+	 * @return array<int, string>
+	 */
+	private function get_international_providers() {
+		$providers = array();
+
+		foreach ( array_keys( $this->get_provider_options() ) as $provider ) {
+			if ( 'international' === sameday_get_provider_country_scope( $provider ) ) {
+				$providers[] = $provider;
+			}
+		}
+
+		return $providers;
+	}
+
+	/**
+	 * Return the A1POST zone tariff in the shape the checkout script needs.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_a1post_frontend_pricing() {
+		$zones    = array();
+		$settings = A1post_Tariff::get_settings();
+
+		foreach ( A1post_Tariff::get_zone_codes() as $zone_code ) {
+			$zone = $settings['zones'][ $zone_code ];
+
+			if ( 'yes' !== $zone['enabled'] ) {
+				continue;
+			}
+
+			$zones[] = array(
+				'code'           => $zone_code,
+				'countries'      => array_map( 'strtoupper', array_map( 'strval', (array) $zone['countries'] ) ),
+				'includedWeight' => (float) $zone['included_weight'],
+				'base'           => (float) $zone['base'],
+				'extraKg'        => (float) $zone['extra_kg'],
+			);
+		}
+
+		return array( 'zones' => $zones );
 	}
 
 	/**

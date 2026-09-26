@@ -97,6 +97,7 @@ class Sameday_Woocommerce_Bg_Public {
 					'chooseService'            => 'Изберете тип доставка, за да изчислим цената.',
 					'enterDetails'             => 'Въведете данните по избрания офис, автомат, АПС или адрес.',
 					'freeShipping'            => 'Вие получавате безплатна доставка!',
+					'freeShippingCard'         => 'Доставката е безплатна, защото плащате с карта.',
 					'pricePrefix'              => 'Вашата цена за доставка е',
 					'currency'                 => $currency_symbol,
 					'easyboxChooseCity'        => 'Изберете населено място',
