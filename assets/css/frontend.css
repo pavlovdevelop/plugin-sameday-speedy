@@ -1,0 +1,268 @@
+/* Sameday WooCommerce BG Frontend Styles */
+
+.sameday-delivery-fields {
+	margin-top: 24px;
+	padding: 20px;
+	border: 1px solid #dcdcdc;
+	border-radius: 8px;
+	background: #fafafa;
+}
+
+.sameday-delivery-fields h3 {
+	margin: 0 0 8px;
+}
+
+.sameday-delivery-intro {
+	margin: 0 0 16px;
+	color: #5f5f5f;
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+.sameday-provider-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.sameday-choice-card,
+.sameday-choice-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 14px 16px;
+	border: 1px solid #d8d8d8;
+	border-radius: 8px;
+	background: #fff;
+	cursor: pointer;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sameday-choice-card:hover,
+.sameday-choice-row:hover {
+	border-color: #111;
+}
+
+.sameday-choice-card input,
+.sameday-choice-row input {
+	margin-top: 4px;
+}
+
+.sameday-provider-card-content {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+.sameday-provider-card-text {
+	font-weight: 500;
+}
+
+.sameday-provider-card-logo {
+	display: block;
+	width: 150px;
+	height: 32px;
+	object-fit: contain;
+}
+
+.sameday-choice-card.is-selected,
+.sameday-choice-row.is-selected {
+	border-color: #111;
+	box-shadow: 0 0 0 1px #111;
+}
+
+.sameday-service-group {
+	display: none;
+	margin-bottom: 16px;
+}
+
+.sameday-service-group.is-active {
+	display: grid;
+	gap: 10px;
+}
+
+.sameday-delivery-details-row.is-hidden {
+	display: none;
+}
+
+.sameday-easybox-selector {
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid #d8d8d8;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.sameday-easybox-selector.is-hidden {
+	display: none;
+}
+
+.sameday-easybox-selector .description {
+	display: block;
+	margin: 0 0 12px;
+	color: #666;
+	font-size: 13px;
+	line-height: 1.5;
+	margin-top: 10px;
+}
+
+.sameday-easybox-selector .form-row {
+	margin-bottom: 12px;
+}
+
+.sameday-easybox-selector .form-row:last-child {
+	margin-bottom: 0;
+}
+
+.sameday-easybox-selector select,
+.sameday-easybox-selector input[type="text"] {
+	width: 100%;
+}
+
+.sameday-easybox-selector .select2-container {
+	width: 100% !important;
+}
+
+.speedy-location-selector {
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid #d8d8d8;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.speedy-location-selector.is-hidden {
+	display: none;
+}
+
+.speedy-location-selector .description {
+	display: block;
+	margin: 0 0 12px;
+	color: #666;
+	font-size: 13px;
+	line-height: 1.5;
+	margin-top: 10px;
+}
+
+.speedy-location-selector .form-row {
+	margin-bottom: 12px;
+}
+
+.speedy-location-selector .form-row:last-child {
+	margin-bottom: 0;
+}
+
+.speedy-location-selector select,
+.speedy-location-selector input[type="text"] {
+	width: 100%;
+}
+
+.speedy-location-selector .select2-container {
+	width: 100% !important;
+}
+
+.sameday-door-fields {
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid #d8d8d8;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.sameday-door-fields.is-hidden {
+	display: none;
+}
+
+.sameday-door-fields .form-row {
+	margin-bottom: 12px;
+}
+
+.sameday-door-fields .form-row:last-child {
+	margin-bottom: 0;
+}
+
+.sameday-door-fields input[type="text"] {
+	width: 100%;
+}
+
+.speedy-door-fields {
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid #d8d8d8;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.speedy-door-fields.is-hidden {
+	display: none;
+}
+
+.speedy-door-fields .form-row {
+	margin-bottom: 12px;
+}
+
+.speedy-door-fields .form-row:last-child {
+	margin-bottom: 0;
+}
+
+.speedy-door-fields input[type="text"] {
+	width: 100%;
+}
+
+.sameday-delivery-details-row textarea {
+	min-height: 110px;
+	resize: vertical;
+}
+
+.sameday-delivery-details-row .description {
+	display: block;
+	margin-top: 8px;
+	color: #666;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.sameday-delivery-summary {
+	margin-top: 12px;
+	padding: 14px 16px;
+	border-radius: 8px;
+	background: #f1f1f1;
+	color: #444;
+	line-height: 1.5;
+}
+
+.sameday-delivery-summary strong {
+	display: block;
+	font-size: 17px;
+	font-weight: 700;
+}
+
+.sameday-delivery-summary.has-price {
+	background: #111;
+	color: #fff;
+}
+
+.sameday-delivery-summary.is-free-shipping {
+	padding: 18px 20px;
+	border: 2px solid #0b7a3b;
+	background: linear-gradient(135deg, #e9fff1 0%, #d5f7df 100%);
+	color: #0b4f2a;
+	box-shadow: 0 10px 24px rgba(11, 122, 59, 0.12);
+}
+
+.sameday-delivery-summary.is-free-shipping strong {
+	font-size: 20px;
+	letter-spacing: 0.01em;
+}
+
+.sameday-delivery-summary.is-hidden {
+	display: none;
+}
+
+@media (max-width: 767px) {
+	.sameday-provider-grid {
+		grid-template-columns: 1fr;
+	}
+}
