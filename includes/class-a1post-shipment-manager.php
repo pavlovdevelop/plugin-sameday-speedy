@@ -189,10 +189,23 @@ class A1post_Shipment_Manager {
 			'value'   => max( 0.01, $value ),
 			'notes'   => isset( $overrides['notes'] ) ? sanitize_text_field( (string) $overrides['notes'] ) : $this->get_a1post_or_order_field( $order, 'notes' ),
 			'lbl'     => isset( $overrides['label_format'] ) ? sanitize_text_field( (string) $overrides['label_format'] ) : (string) A1post_Tariff::get( 'label_format', 'pdf_a4' ),
-			'serv'    => isset( $overrides['service'] ) ? sanitize_text_field( (string) $overrides['service'] ) : (string) A1post_Tariff::get( 'service_code', 'L' ),
+			'serv'    => isset( $overrides['service'] ) ? sanitize_text_field( (string) $overrides['service'] ) : $this->get_order_service( $order ),
 		);
 
 		return apply_filters( 'sameday_a1post_label_payload', $payload, $order, $overrides );
+	}
+
+	/**
+	 * A1POST service for the label: the one the customer chose at checkout
+	 * (official A1POST module), otherwise the default from the settings.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string
+	 */
+	private function get_order_service( $order ) {
+		$service = (string) self::read_order_meta( $order, '_sameday_a1post_service' );
+
+		return '' !== $service ? $service : (string) A1post_Tariff::get( 'service_code', 'L' );
 	}
 
 	private function get_destination_country( $order ) {
@@ -327,3 +340,4 @@ class A1post_Shipment_Manager {
 		return $payload;
 	}
 }
+

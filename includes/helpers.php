@@ -520,3 +520,18 @@ function sameday_calculate_cod_fee( $order_total, $cod_percent = 1, $minimum_fee
 	$calculator = new Sameday_Price_Calculator();
 	return $calculator->calculate_cod_fee( $order_total, $cod_percent, $minimum_fee );
 }
+
+/**
+ * Whether A1POST delivers to a country: through the official A1POST plugin
+ * when it is active, otherwise through the built-in zone tariff.
+ *
+ * @param string $country ISO-2 country code.
+ * @return bool
+ */
+function sameday_a1post_supports_country( $country ) {
+	if ( class_exists( 'A1post_Module' ) && A1post_Module::is_active() ) {
+		return A1post_Module::supports_country( $country );
+	}
+
+	return A1post_Tariff::supports_country( $country );
+}

@@ -78,6 +78,16 @@ class A1post_Admin {
 		<div class="wrap">
 			<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
 
+			<?php if ( class_exists( 'A1post_Module' ) && A1post_Module::is_active() ) : ?>
+				<div class="notice notice-success inline" style="margin:16px 0;">
+					<p>
+						<strong><?php esc_html_e( 'Работи с модула „a1post Shipping“.', 'sameday-woocommerce-bg' ); ?></strong>
+						<?php esc_html_e( 'Държавите, услугите, цените, надбавката и безплатната доставка за A1POST се взимат от неговите настройки (WooCommerce → Настройки → Доставка → A1POST). Тарифата по зони по-долу не се използва.', 'sameday-woocommerce-bg' ); ?>
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=wc-settings&tab=shipping&section=a1post' ) ); ?>"><?php esc_html_e( 'Отвори настройките на модула', 'sameday-woocommerce-bg' ); ?></a>
+					</p>
+				</div>
+			<?php endif; ?>
+
 			<div class="notice notice-info inline" style="margin:16px 0;">
 				<p>
 					<?php esc_html_e( 'A1POST се предлага само за адреси извън България. За български адреси се показват Speedy и Sameday.', 'sameday-woocommerce-bg' ); ?>

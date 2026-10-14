@@ -229,6 +229,15 @@
 			?>
 		</p>
 
+		<?php if ( class_exists( 'A1post_Module' ) && A1post_Module::is_active() ) : ?>
+			<div class="a1post-rates" id="a1post-rates">
+				<?php
+				// Services and prices come from the official A1POST plugin.
+				echo $this->get_a1post_rates_markup( $country, $this->get_a1post_postcode( $selection ), $selection['a1post_rate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in the method.
+				?>
+			</div>
+		<?php endif; ?>
+
 		<p class="form-row form-row-wide">
 			<label for="a1post_name">Получател <span class="required">*</span></label>
 			<input type="text" name="a1post_name" id="a1post_name" class="input-text" value="<?php echo esc_attr( $selection['a1post_name'] ); ?>" placeholder="Име и фамилия" maxlength="40" />

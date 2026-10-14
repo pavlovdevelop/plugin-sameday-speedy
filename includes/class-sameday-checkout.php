@@ -160,6 +160,9 @@ class Sameday_Checkout {
 			// Destination, used to quote the real Speedy price.
 			'speedy_location'  => isset( $selection['speedy_location'] ) ? $selection['speedy_location'] : 0,
 			'speedy_door_city' => isset( $selection['speedy_door_city'] ) ? $selection['speedy_door_city'] : '',
+			// A1POST service chosen by the customer and the post code it is priced for.
+			'a1post_rate'      => isset( $selection['a1post_rate'] ) ? $selection['a1post_rate'] : '',
+			'a1post_postcode'  => isset( $selection['a1post_postcode'] ) ? $selection['a1post_postcode'] : '',
 		);
 	}
 
@@ -309,8 +312,10 @@ class Sameday_Checkout {
 				return;
 			}
 
-			if ( ! A1post_Tariff::supports_country( $country ) ) {
+			if ( ! sameday_a1post_supports_country( $country ) ) {
 				wc_add_notice( 'За избраната държава няма активна тарифа на A1POST. Моля, свържете се с нас.', 'error' );
+			} elseif ( A1post_Module::is_active() && null === A1post_Module::get_rate( $country, $selection['a1post_postcode'], $selection['a1post_rate'] ) ) {
+				wc_add_notice( 'A1POST не върна цена за доставка до този адрес. Проверете пощенския код или се свържете с нас.', 'error' );
 			}
 
 			if ( empty( $selection['a1post_name'] ) ) {
@@ -418,6 +423,16 @@ class Sameday_Checkout {
 			update_post_meta( $order_id, '_sameday_a1post_state', $selection['a1post_state'] );
 			update_post_meta( $order_id, '_sameday_a1post_postcode', $selection['a1post_postcode'] );
 			update_post_meta( $order_id, '_sameday_a1post_notes', $selection['a1post_notes'] );
+
+			// Service picked from the official A1POST module, used when the label is created.
+			if ( A1post_Module::is_active() ) {
+				$a1post_rate = A1post_Module::get_rate( $selection['a1post_country'], $selection['a1post_postcode'], $selection['a1post_rate'] );
+
+				if ( null !== $a1post_rate ) {
+					update_post_meta( $order_id, '_sameday_a1post_service', $a1post_rate['code'] );
+					update_post_meta( $order_id, '_sameday_a1post_service_label', $a1post_rate['label'] );
+				}
+			}
 		}
 	}
 
@@ -470,11 +485,89 @@ class Sameday_Checkout {
 			$context
 		);
 
-		if ( $amount <= 0 ) {
+		// No A1POST rate yet (e.g. module unreachable): show nothing rather than a misleading free line.
+		if ( 'a1post_international' === $selection['service'] && A1post_Module::is_active()
+			&& null === A1post_Module::get_rate( $context['country'], $context['a1post_postcode'], $context['a1post_rate'] ) ) {
 			return;
 		}
 
-		$cart->add_fee( self::FEE_NAME, $amount, false );
+		$cart->add_fee( self::FEE_NAME, max( 0.0, (float) $amount ), false );
+	}
+
+	/**
+	 * Radio list of the A1POST services and prices returned by the official A1POST plugin.
+	 *
+	 * @param string $country  Destination ISO-2 code.
+	 * @param string $postcode Destination post code.
+	 * @param string $selected Selected rate ID.
+	 * @return string
+	 */
+	public function get_a1post_rates_markup( $country, $postcode, $selected = '' ) {
+		$rates = A1post_Module::get_rates( $country, $postcode );
+
+		if ( empty( $rates ) ) {
+			$message = '' === trim( (string) $postcode )
+				? 'Въведете пощенски код, за да изчислим цената за доставка с A1POST.'
+				: 'A1POST не върна цена за доставка до този адрес. Проверете пощенския код.';
+
+			return '<p class="a1post-rates-empty">' . esc_html( $message ) . '</p>';
+		}
+
+		$selected_rate = A1post_Module::get_rate( $country, $postcode, $selected );
+		$html          = '';
+
+		foreach ( $rates as $rate ) {
+			$price = $rate['cost'] > 0 ? wp_strip_all_tags( wc_price( $rate['cost'] ) ) : 'Безплатна';
+			$html .= sprintf(
+				'<label class="sameday-choice-row a1post-rate"><input type="radio" name="a1post_rate" value="%1$s" data-cost="%2$s"%3$s /> <span class="a1post-rate-label">%4$s</span> <strong class="a1post-rate-price">%5$s</strong></label>',
+				esc_attr( $rate['id'] ),
+				esc_attr( (string) $rate['cost'] ),
+				null !== $selected_rate && $selected_rate['id'] === $rate['id'] ? ' checked="checked"' : '',
+				esc_html( $rate['label'] ),
+				esc_html( $price )
+			);
+		}
+
+		return $html;
+	}
+
+	/**
+	 * AJAX: refresh the A1POST services and prices for a country / post code.
+	 *
+	 * @return void
+	 */
+	public function ajax_a1post_rates() {
+		check_ajax_referer( 'sameday_ajax_nonce', 'security' );
+
+		$country  = isset( $_POST['country'] ) ? strtoupper( preg_replace( '/[^A-Za-z]/', '', wc_clean( wp_unslash( $_POST['country'] ) ) ) ) : '';
+		$postcode = isset( $_POST['postcode'] ) ? wc_clean( wp_unslash( $_POST['postcode'] ) ) : '';
+		$selected = isset( $_POST['rate'] ) ? wc_clean( wp_unslash( $_POST['rate'] ) ) : '';
+
+		wp_send_json_success(
+			array(
+				'html' => $this->get_a1post_rates_markup( $country, $postcode, $selected ),
+			)
+		);
+	}
+
+	/**
+	 * Post code used to price A1POST: the A1POST field, else the checkout address.
+	 *
+	 * @param array $selection Selection.
+	 * @return string
+	 */
+	private function get_a1post_postcode( $selection ) {
+		if ( ! empty( $selection['a1post_postcode'] ) ) {
+			return (string) $selection['a1post_postcode'];
+		}
+
+		if ( function_exists( 'WC' ) && WC()->customer ) {
+			$postcode = (string) WC()->customer->get_shipping_postcode();
+
+			return '' !== $postcode ? $postcode : (string) WC()->customer->get_billing_postcode();
+		}
+
+		return '';
 	}
 
 	/**
@@ -591,6 +684,7 @@ class Sameday_Checkout {
 			'a1post_state'         => '',
 			'a1post_postcode'      => '',
 			'a1post_notes'         => '',
+			'a1post_rate'          => '',
 		);
 	}
 
@@ -624,6 +718,7 @@ class Sameday_Checkout {
 		$selection['a1post_state']         = isset( $data['a1post_state'] ) ? sanitize_text_field( wp_unslash( $data['a1post_state'] ) ) : '';
 		$selection['a1post_postcode']      = isset( $data['a1post_postcode'] ) ? sanitize_text_field( wp_unslash( $data['a1post_postcode'] ) ) : '';
 		$selection['a1post_notes']         = isset( $data['a1post_notes'] ) ? sanitize_textarea_field( wp_unslash( $data['a1post_notes'] ) ) : '';
+		$selection['a1post_rate']          = isset( $data['a1post_rate'] ) ? wc_clean( wp_unslash( $data['a1post_rate'] ) ) : '';
 
 		$provider_options = $this->get_enabled_provider_options();
 
@@ -976,7 +1071,7 @@ class Sameday_Checkout {
 				continue;
 			}
 
-			if ( 'a1post' === $provider && ! A1post_Tariff::supports_country( $country ) ) {
+			if ( 'a1post' === $provider && ! sameday_a1post_supports_country( $country ) ) {
 				unset( $options[ $provider ] );
 			}
 		}

@@ -15,6 +15,9 @@ jQuery(function($) {
 	var speedyQuotes = {};
 	var speedyQuoteTimer = null;
 	var speedyQuoteRequest = null;
+	var a1postRatesTimer = null;
+	var a1postRatesRequest = null;
+	var a1postRatesKey = '';
 
 	if (!checkoutConfig) {
 		return;
@@ -311,6 +314,66 @@ jQuery(function($) {
 				}
 			});
 		}, 400);
+	}
+
+	function hasA1postModuleRates() {
+		return $('#a1post-rates').length > 0;
+	}
+
+	function getSelectedA1postRate() {
+		return $('input[name="a1post_rate"]:checked');
+	}
+
+	function getA1postPostcode() {
+		var addressPostcode = $('#ship-to-different-address-checkbox').is(':checked') ? $('#shipping_postcode').val() : $('#billing_postcode').val();
+
+		// Same order as the server: the A1POST field, then the checkout address.
+		return $.trim($('#a1post_postcode').val() || addressPostcode || $('#shipping_postcode').val() || '');
+	}
+
+	// Services and prices come from the official A1POST plugin on the server.
+	function refreshA1postRates() {
+		var key = getDeliveryCountry() + '|' + getA1postPostcode();
+
+		if (!hasA1postModuleRates() || getSelectedService() !== 'a1post_international' || key === a1postRatesKey) {
+			return;
+		}
+
+		clearTimeout(a1postRatesTimer);
+		a1postRatesTimer = setTimeout(function() {
+			if (a1postRatesRequest) {
+				a1postRatesRequest.abort();
+			}
+
+			a1postRatesKey = key;
+			$('#a1post-rates').addClass('is-loading');
+
+			a1postRatesRequest = $.ajax({
+				url: checkoutConfig.ajaxUrl,
+				type: 'POST',
+				dataType: 'json',
+				data: {
+					action: 'sameday_a1post_rates',
+					security: checkoutConfig.nonce,
+					country: getDeliveryCountry(),
+					postcode: getA1postPostcode(),
+					rate: getSelectedA1postRate().val() || ''
+				}
+			}).done(function(response) {
+				if (response && response.success && response.data) {
+					$('#a1post-rates').html(response.data.html);
+				}
+			}).fail(function(xhr, status) {
+				if (status !== 'abort') {
+					a1postRatesKey = '';
+				}
+			}).always(function() {
+				a1postRatesRequest = null;
+				$('#a1post-rates').removeClass('is-loading');
+				updateSummary();
+				triggerCheckoutUpdate();
+			});
+		}, 500);
 	}
 
 	function formatPrice(value) {
@@ -894,7 +957,8 @@ jQuery(function($) {
 				return !!getSpeedyDoorCity() && !!getSpeedyDoorAddress();
 
 			case 'a1post_international':
-				return true;
+				// With the official A1POST plugin a service (rate) has to be chosen.
+				return !hasA1postModuleRates() || !!getSelectedA1postRate().length;
 		}
 
 		return false;
@@ -1018,6 +1082,24 @@ jQuery(function($) {
 			}
 		}
 
+		if (serviceCode === 'a1post_international' && hasA1postModuleRates()) {
+			var a1postCost = Number(getSelectedA1postRate().data('cost') || 0);
+
+			if (a1postCost <= 0) {
+				$summary
+					.removeClass('is-hidden has-price')
+					.addClass('is-free-shipping')
+					.html('<strong>' + checkoutConfig.strings.freeShipping + '</strong>');
+				return;
+			}
+
+			$summary
+				.removeClass('is-hidden is-free-shipping')
+				.addClass('has-price')
+				.html('<strong>' + checkoutConfig.strings.pricePrefix + ' ' + formatPrice(a1postCost) + '</strong>');
+			return;
+		}
+
 		if (hasFreeShipping(serviceCode)) {
 			$summary
 				.removeClass('is-hidden has-price')
@@ -1077,6 +1159,7 @@ jQuery(function($) {
 		}
 
 		refreshDeliveryUi();
+		refreshA1postRates();
 		triggerCheckoutUpdate();
 	});
 
@@ -1123,6 +1206,16 @@ jQuery(function($) {
 	$(document.body).on('input change', '#a1post_name, #a1post_phone, #a1post_email, #a1post_address_1, #a1post_address_2, #a1post_city, #a1post_state, #a1post_postcode, #a1post_notes', function() {
 		updateSummary();
 		triggerCheckoutUpdate();
+	});
+
+	$(document.body).on('change', 'input[name="a1post_rate"]', function() {
+		updateCheckedState();
+		updateSummary();
+		triggerCheckoutUpdate();
+	});
+
+	$(document.body).on('input change', '#a1post_postcode, #billing_postcode, #shipping_postcode', function() {
+		refreshA1postRates();
 	});
 
 	// The delivery box is rendered inside the billing form, which WooCommerce
@@ -1172,7 +1265,9 @@ jQuery(function($) {
 				$current.replaceWith(response.data.html);
 			}
 
+			a1postRatesKey = '';
 			refreshDeliveryUi();
+			refreshA1postRates();
 			triggerCheckoutUpdate();
 		}).fail(function(xhr, status) {
 			if (status !== 'abort') {
@@ -1220,4 +1315,5 @@ jQuery(function($) {
 	lastRenderedCountry = getDeliveryCountry();
 	lastPaymentMethod = getSelectedPaymentMethod();
 	refreshDeliveryUi();
+	refreshA1postRates();
 });

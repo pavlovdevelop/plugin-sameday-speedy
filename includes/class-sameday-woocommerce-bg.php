@@ -166,6 +166,7 @@ class Sameday_Woocommerce_Bg {
 		 */
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-api-client.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-tariff.php';
+		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-module.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-shipment-manager.php';
 		require_once SAMEDAY_WOOCOMMERCE_BG_PLUGIN_DIR . 'includes/class-a1post-admin.php';
 
@@ -283,6 +284,8 @@ class Sameday_Woocommerce_Bg {
 		$this->loader->add_filter( 'woocommerce_cart_totals_fee_html', $checkout, 'filter_free_delivery_fee_html', 10, 2 );
 		$this->loader->add_action( 'wp_ajax_sameday_speedy_quote', $checkout, 'quote_speedy_price' );
 		$this->loader->add_action( 'wp_ajax_nopriv_sameday_speedy_quote', $checkout, 'quote_speedy_price' );
+		$this->loader->add_action( 'wp_ajax_sameday_a1post_rates', $checkout, 'ajax_a1post_rates' );
+		$this->loader->add_action( 'wp_ajax_nopriv_sameday_a1post_rates', $checkout, 'ajax_a1post_rates' );
 
 		new Sameday_Ajax();
 		new Sameday_Order_Meta();

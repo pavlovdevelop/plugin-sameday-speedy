@@ -397,6 +397,17 @@ class Sameday_Price_Calculator {
 				? (string) $context['country']
 				: sameday_get_customer_country();
 
+			// Live rate from the official A1POST plugin when it is active.
+			if ( class_exists( 'A1post_Module' ) && A1post_Module::is_active() ) {
+				$rate = A1post_Module::get_rate(
+					$country,
+					isset( $context['a1post_postcode'] ) ? (string) $context['a1post_postcode'] : '',
+					isset( $context['a1post_rate'] ) ? (string) $context['a1post_rate'] : ''
+				);
+
+				return null === $rate ? 0.0 : (float) $rate['cost'];
+			}
+
 			return A1post_Tariff::calculate_price( $country, $weight );
 		}
 
