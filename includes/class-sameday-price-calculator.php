@@ -644,7 +644,15 @@ class Sameday_Price_Calculator {
 			);
 		}
 
-		return array( 'zones' => $zones );
+		return array(
+			'zones'       => $zones,
+			// Econt (or similar) to A1POST, added on top of the zone price - same as A1post_Tariff::calculate_price().
+			'domesticLeg' => array(
+				'fee'        => (float) $settings['domestic_leg_fee'],
+				'includedKg' => (float) $settings['domestic_leg_included_kg'],
+				'extraKg'    => (float) $settings['domestic_leg_extra_kg'],
+			),
+		);
 	}
 
 	/**

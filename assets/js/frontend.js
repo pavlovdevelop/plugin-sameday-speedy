@@ -449,6 +449,21 @@ jQuery(function($) {
 		return convertBgnToEur(price);
 	}
 
+	// Cost of getting the parcel to A1POST (e.g. Econt to Varna); mirrors A1post_Tariff::get_domestic_leg_fee().
+	function getA1postDomesticLegFee(weight) {
+		var pricing = (checkoutConfig.config.pricing && checkoutConfig.config.pricing.a1post) || {};
+		var leg = pricing.domesticLeg || {};
+		var fee = Math.max(0, Number(leg.fee || 0));
+		var includedKg = Math.max(0, Number(leg.includedKg || 0));
+		var extraKg = Math.max(0, Number(leg.extraKg || 0));
+
+		if (extraKg > 0 && weight > includedKg) {
+			fee += Math.ceil(weight - includedKg) * extraKg;
+		}
+
+		return fee;
+	}
+
 	function calculateA1postPrice(weight) {
 		var pricing = (checkoutConfig.config.pricing && checkoutConfig.config.pricing.a1post) || {};
 		var zones = pricing.zones || [];
@@ -489,7 +504,7 @@ jQuery(function($) {
 			price += Math.ceil(weight - includedWeight) * Number(zone.extraKg || 0);
 		}
 
-		return price;
+		return price + getA1postDomesticLegFee(weight);
 	}
 
 	function calculatePrice(serviceCode) {
