@@ -275,7 +275,7 @@ class A1post_Tariff {
 		$clean['sender_name']   = isset( $input['sender_name'] ) ? sanitize_text_field( wp_unslash( $input['sender_name'] ) ) : '';
 		$clean['sender_phone']  = isset( $input['sender_phone'] ) ? sanitize_text_field( wp_unslash( $input['sender_phone'] ) ) : '';
 		$clean['sender_email']  = isset( $input['sender_email'] ) ? sanitize_email( wp_unslash( $input['sender_email'] ) ) : '';
-		$clean['label_format']  = isset( $input['label_format'] ) && in_array( $input['label_format'], array( 'pdf_a4', 'pdf_a6', 'zpl' ), true ) ? $input['label_format'] : $defaults['label_format'];
+		$clean['label_format']  = isset( $input['label_format'] ) && in_array( $input['label_format'], array( 'pdf_a4', 'pdf_a6', 'pdf_lbl_barcode', 'pdf_a4_barcode', 'zpl' ), true ) ? $input['label_format'] : $defaults['label_format'];
 		$clean['service_code']  = isset( $input['service_code'] ) && in_array( $input['service_code'], array( 'L', 'R', 'U', 'ups', 'upsS', 'dhl' ), true ) ? $input['service_code'] : $defaults['service_code'];
 		$clean['default_weight_kg'] = self::sanitize_number( isset( $input['default_weight_kg'] ) ? $input['default_weight_kg'] : '', $defaults['default_weight_kg'] );
 		$clean['default_contents'] = isset( $input['default_contents'] ) && '' !== trim( (string) $input['default_contents'] ) ? sanitize_text_field( wp_unslash( $input['default_contents'] ) ) : $defaults['default_contents'];

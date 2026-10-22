@@ -295,6 +295,7 @@ class A1post_Admin {
 								<select id="a1post_label_format" name="<?php echo esc_attr( A1post_Tariff::OPTION ); ?>[label_format]">
 									<option value="pdf_a4" <?php selected( $settings['label_format'], 'pdf_a4' ); ?>>PDF A4</option>
 									<option value="pdf_a6" <?php selected( $settings['label_format'], 'pdf_a6' ); ?>>PDF A6</option>
+<?php foreach ( array( 'pdf_lbl_barcode' => 'Barcode PDF', 'pdf_a4_barcode' => 'A4 Barcode PDF' ) as $a1post_format => $a1post_format_label ) : ?><option value="<?php echo esc_attr( $a1post_format ); ?>" <?php selected( $settings['label_format'], $a1post_format ); ?>><?php echo esc_html( $a1post_format_label ); ?></option><?php endforeach; ?>
 									<option value="zpl" <?php selected( $settings['label_format'], 'zpl' ); ?>>ZPL</option>
 								</select>
 							</td>
@@ -480,6 +481,7 @@ class A1post_Admin {
 							<select name="label_format" style="margin-left:8px;">
 								<option value="pdf_a4" <?php selected( $settings['label_format'], 'pdf_a4' ); ?>>PDF A4</option>
 								<option value="pdf_a6" <?php selected( $settings['label_format'], 'pdf_a6' ); ?>>PDF A6</option>
+<?php foreach ( array( 'pdf_lbl_barcode' => 'Barcode PDF', 'pdf_a4_barcode' => 'A4 Barcode PDF' ) as $a1post_format => $a1post_format_label ) : ?><option value="<?php echo esc_attr( $a1post_format ); ?>" <?php selected( $settings['label_format'], $a1post_format ); ?>><?php echo esc_html( $a1post_format_label ); ?></option><?php endforeach; ?>
 								<option value="zpl" <?php selected( $settings['label_format'], 'zpl' ); ?>>ZPL</option>
 							</select>
 						</td>

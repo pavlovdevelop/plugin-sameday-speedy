@@ -94,6 +94,23 @@ class A1post_Api_Client {
 			return new WP_Error( 'a1post_empty_label', 'A1POST returned an empty label.' );
 		}
 
+		// print.php answers with JSON: {"lbl": "<base64 PDF>"} or {"error": {"message": "..."}}.
+		if ( $this->looks_like_json( $body ) ) {
+			$decoded = json_decode( $body, true );
+
+			if ( is_array( $decoded ) && ! empty( $decoded['error'] ) ) {
+				return new WP_Error( 'a1post_print_error', $this->stringify_error( $decoded['error'] ), $decoded );
+			}
+
+			$label = is_array( $decoded ) && ! empty( $decoded['lbl'] ) ? base64_decode( (string) $decoded['lbl'], true ) : false;
+
+			if ( false === $label || '' === $label ) {
+				return new WP_Error( 'a1post_invalid_label', 'A1POST не върна етикет за тази товарителница.' );
+			}
+
+			return $label;
+		}
+
 		return $body;
 	}
 
@@ -227,7 +244,7 @@ class A1post_Api_Client {
 	private function normalize_label_format( $format ) {
 		$format = strtolower( (string) $format );
 
-		return in_array( $format, array( 'pdf_a4', 'pdf_a6', 'zpl' ), true ) ? $format : 'pdf_a4';
+		return in_array( $format, array( 'pdf_a4', 'pdf_a6', 'pdf_lbl_barcode', 'pdf_a4_barcode', 'zpl' ), true ) ? $format : 'pdf_a4';
 	}
 
 	private function looks_like_json( $body ) {

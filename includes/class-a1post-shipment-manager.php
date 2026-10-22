@@ -84,6 +84,11 @@ class A1post_Shipment_Manager {
 		$order->update_meta_data( self::META_TRACKING, $tracking );
 		$order->update_meta_data( self::META_CREATED_AT, time() );
 		$order->update_meta_data( self::META_REQUEST, $this->redact_payload( $payload ) );
+		// The response carries the whole label as base64; keep the order meta small.
+		if ( is_array( $response ) ) {
+			unset( $response['lbl'] );
+		}
+
 		$order->update_meta_data( self::META_RESPONSE, $response );
 		$order->update_meta_data( self::META_LAST_ERROR, '' );
 		$order->update_meta_data( self::META_LABEL_FORMAT, (string) $payload['lbl'] );
