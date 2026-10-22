@@ -293,3 +293,14 @@
 		grid-template-columns: 1fr;
 	}
 }
+
+/* Delivery line in the order totals: align its amount right like the theme's subtotal and total rows. */
+.woocommerce-checkout-review-order-table tfoot tr.fee th,
+.cart_totals .shop_table tr.fee th {
+	text-align: left;
+}
+
+.woocommerce-checkout-review-order-table tfoot tr.fee td,
+.cart_totals .shop_table tr.fee td {
+	text-align: right !important;
+}
