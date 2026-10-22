@@ -102,7 +102,7 @@ class A1post_Module {
 			return array();
 		}
 
-		$key = md5( wp_json_encode( array( $country, $postcode, WC()->cart->get_cart_hash(), get_woocommerce_currency(), self::get_method()->settings ) ) );
+		$key = md5( wp_json_encode( array( $country, $postcode, WC()->cart->get_cart_hash(), get_woocommerce_currency(), self::get_method()->settings, class_exists( 'A1post_Tariff' ) ? A1post_Tariff::get_domestic_leg_fee() : 0 ) ) );
 
 		if ( isset( self::$memory[ $key ] ) ) {
 			return self::$memory[ $key ];
@@ -203,7 +203,7 @@ class A1post_Module {
 				'id'    => $id,
 				'code'  => 0 === strpos( $id, 'a1post_' ) ? substr( $id, 7 ) : $id,
 				'label' => (string) $rate->get_label(),
-				'cost'  => round( max( 0.0, (float) $rate->get_cost() ), 2 ),
+				'cost'  => self::add_domestic_leg_fee( (float) $rate->get_cost() ),
 			);
 		}
 
@@ -215,6 +215,23 @@ class A1post_Module {
 		);
 
 		return $rates;
+	}
+
+	/**
+	 * Add the cost of getting the parcel to A1POST (e.g. Econt to Varna).
+	 * A rate the module made free stays free.
+	 *
+	 * @param float $cost A1POST rate.
+	 * @return float
+	 */
+	private static function add_domestic_leg_fee( $cost ) {
+		$cost = max( 0.0, $cost );
+
+		if ( $cost > 0 && class_exists( 'A1post_Tariff' ) ) {
+			$cost += A1post_Tariff::get_domestic_leg_fee();
+		}
+
+		return round( $cost, 2 );
 	}
 
 	/**

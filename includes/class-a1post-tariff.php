@@ -93,6 +93,9 @@ class A1post_Tariff {
 			'ioss'            => '',
 			'auto_create_label' => 'no',
 
+			// Cost of getting the parcel to A1POST (e.g. Econt from the shop to Varna), added to every A1POST price.
+			'domestic_leg_fee' => '0',
+
 			// Checkout behaviour.
 			'service_label'   => 'Международна доставка с A1POST',
 			'delivery_note'   => 'Доставката се извършва от A1POST до адреса, попълнен в поръчката.',
@@ -250,7 +253,16 @@ class A1post_Tariff {
 			$price   += $extra_kg * max( 0.0, (float) $zone['extra_kg'] );
 		}
 
-		return round( $price, wc_get_price_decimals() );
+		return round( $price + self::get_domestic_leg_fee(), wc_get_price_decimals() );
+	}
+
+	/**
+	 * Cost of getting the parcel to A1POST (e.g. Econt to Varna), in the store currency.
+	 *
+	 * @return float
+	 */
+	public static function get_domestic_leg_fee() {
+		return max( 0.0, (float) self::get( 'domestic_leg_fee', '0' ) );
 	}
 
 	/**
@@ -282,6 +294,7 @@ class A1post_Tariff {
 		$clean['default_hs_code'] = isset( $input['default_hs_code'] ) ? sanitize_text_field( wp_unslash( $input['default_hs_code'] ) ) : '';
 		$clean['ioss']         = isset( $input['ioss'] ) ? sanitize_text_field( wp_unslash( $input['ioss'] ) ) : '';
 		$clean['auto_create_label'] = isset( $input['auto_create_label'] ) && 'yes' === $input['auto_create_label'] ? 'yes' : 'no';
+		$clean['domestic_leg_fee'] = self::sanitize_number( isset( $input['domestic_leg_fee'] ) ? $input['domestic_leg_fee'] : '', '0' );
 		$clean['service_label'] = isset( $input['service_label'] ) && '' !== trim( (string) $input['service_label'] )
 			? sanitize_text_field( wp_unslash( $input['service_label'] ) )
 			: $defaults['service_label'];

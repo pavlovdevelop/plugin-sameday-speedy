@@ -145,6 +145,19 @@ class A1post_Admin {
 					</tbody>
 				</table>
 
+				<h2><?php esc_html_e( 'Транспорт до A1POST', 'sameday-woocommerce-bg' ); ?></h2>
+				<table class="form-table" role="presentation">
+					<tbody>
+						<tr>
+							<th scope="row"><label for="a1post_domestic_leg_fee"><?php esc_html_e( 'Цена на Еконт до A1POST', 'sameday-woocommerce-bg' ); ?></label></th>
+							<td>
+								<input type="number" min="0" step="0.01" id="a1post_domestic_leg_fee" class="small-text" name="<?php echo esc_attr( A1post_Tariff::OPTION ); ?>[domestic_leg_fee]" value="<?php echo esc_attr( $settings['domestic_leg_fee'] ); ?>" /> <?php echo esc_html( $currency ); ?>
+								<p class="description"><?php esc_html_e( 'Колко ви струва да изпратите пратката до A1POST (напр. с Еконт от Казанлък до Варна). Добавя се към всяка цена за A1POST, която вижда клиентът – и от тарифата по зони, и от модула „a1post Shipping“. Безплатните доставки остават безплатни.', 'sameday-woocommerce-bg' ); ?></p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+
 				<h2><?php esc_html_e( 'Тарифа по зони', 'sameday-woocommerce-bg' ); ?></h2>
 				<p class="description">
 					<?php
