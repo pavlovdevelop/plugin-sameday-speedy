@@ -431,9 +431,49 @@ class Sameday_Checkout {
 				if ( null !== $a1post_rate ) {
 					update_post_meta( $order_id, '_sameday_a1post_service', $a1post_rate['code'] );
 					update_post_meta( $order_id, '_sameday_a1post_service_label', $a1post_rate['label'] );
+					update_post_meta( $order_id, '_sameday_delivery_details', trim( $selection['details'] . "\nУслуга A1POST: " . $a1post_rate['label'] ) );
 				}
 			}
+
+			$this->copy_a1post_address_to_order( $order_id, $selection );
 		}
+	}
+
+	/**
+	 * Put the A1POST recipient into the order's shipping address.
+	 *
+	 * The A1POST label plugin builds the label from the order's shipping address,
+	 * which stays empty or holds the billing address because this plugin replaces
+	 * WooCommerce shipping.
+	 *
+	 * @param int   $order_id  Order ID.
+	 * @param array $selection Delivery selection.
+	 * @return void
+	 */
+	private function copy_a1post_address_to_order( $order_id, $selection ) {
+		$order = wc_get_order( $order_id );
+
+		if ( ! $order ) {
+			return;
+		}
+
+		$name  = trim( (string) $selection['a1post_name'] );
+		$parts = preg_split( '/\s+/u', $name, 2 );
+
+		$order->set_shipping_first_name( isset( $parts[0] ) ? $parts[0] : '' );
+		$order->set_shipping_last_name( isset( $parts[1] ) ? $parts[1] : '' );
+		$order->set_shipping_address_1( $selection['a1post_address_1'] );
+		$order->set_shipping_address_2( $selection['a1post_address_2'] );
+		$order->set_shipping_city( $selection['a1post_city'] );
+		$order->set_shipping_state( $selection['a1post_state'] );
+		$order->set_shipping_postcode( $selection['a1post_postcode'] );
+		$order->set_shipping_country( $selection['a1post_country'] );
+
+		if ( is_callable( array( $order, 'set_shipping_phone' ) ) ) {
+			$order->set_shipping_phone( $selection['a1post_phone'] );
+		}
+
+		$order->save();
 	}
 
 	/**

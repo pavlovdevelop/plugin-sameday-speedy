@@ -28,6 +28,12 @@ class A1post_Admin {
 	public function register() {
 		add_action( 'admin_menu', array( $this, 'add_menu' ), 20 );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+
+		// Labels are handled by the official "A1POST.BG Shipping for WooCommerce" plugin when it is active.
+		if ( sameday_a1post_label_plugin_active() ) {
+			return;
+		}
+
 		add_action( 'add_meta_boxes', array( $this, 'register_order_meta_box' ) );
 		add_action( 'wp_ajax_a1post_create_label', array( $this, 'ajax_create_label' ) );
 		add_action( 'admin_post_a1post_print_label', array( $this, 'handle_print_label' ) );
@@ -77,6 +83,15 @@ class A1post_Admin {
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+
+			<?php if ( sameday_a1post_label_plugin_active() ) : ?>
+				<div class="notice notice-success inline" style="margin:16px 0;">
+					<p>
+						<strong><?php esc_html_e( 'Товарителниците се правят с плъгина „A1POST.BG Shipping for WooCommerce“.', 'sameday-woocommerce-bg' ); ?></strong>
+						<?php esc_html_e( 'В поръчката използвайте неговата кутия „A1POST“. Адресът от checkout-а се записва като адрес за доставка на поръчката, а избраната от клиента услуга е в детайлите за доставка. Автоматичното създаване на товарителници от този плъгин е изключено, за да няма дублиране.', 'sameday-woocommerce-bg' ); ?>
+					</p>
+				</div>
+			<?php endif; ?>
 
 			<?php if ( class_exists( 'A1post_Module' ) && A1post_Module::is_active() ) : ?>
 				<div class="notice notice-success inline" style="margin:16px 0;">

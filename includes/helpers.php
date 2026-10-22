@@ -535,3 +535,14 @@ function sameday_a1post_supports_country( $country ) {
 
 	return A1post_Tariff::supports_country( $country );
 }
+
+/**
+ * Whether the official "A1POST.BG Shipping for WooCommerce" plugin (labels) is active.
+ * It creates A1POST labels from the order's shipping address, so the built-in
+ * A1POST label box steps aside to avoid duplicate labels.
+ *
+ * @return bool
+ */
+function sameday_a1post_label_plugin_active() {
+	return function_exists( 'a1post_ship_order_box' );
+}
