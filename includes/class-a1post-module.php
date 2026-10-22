@@ -102,7 +102,7 @@ class A1post_Module {
 			return array();
 		}
 
-		$key = md5( wp_json_encode( array( $country, $postcode, WC()->cart->get_cart_hash(), get_woocommerce_currency(), self::get_method()->settings, class_exists( 'A1post_Tariff' ) ? A1post_Tariff::get_domestic_leg_fee() : 0 ) ) );
+		$key = md5( wp_json_encode( array( $country, $postcode, WC()->cart->get_cart_hash(), get_woocommerce_currency(), self::get_method()->settings, class_exists( 'A1post_Tariff' ) ? A1post_Tariff::get_settings() : array() ) ) );
 
 		if ( isset( self::$memory[ $key ] ) ) {
 			return self::$memory[ $key ];
@@ -228,7 +228,8 @@ class A1post_Module {
 		$cost = max( 0.0, $cost );
 
 		if ( $cost > 0 && class_exists( 'A1post_Tariff' ) ) {
-			$cost += A1post_Tariff::get_domestic_leg_fee();
+			$weight = function_exists( 'WC' ) && WC()->cart ? (float) wc_get_weight( WC()->cart->get_cart_contents_weight(), 'kg' ) : 0.0;
+			$cost  += A1post_Tariff::get_domestic_leg_fee( $weight );
 		}
 
 		return round( $cost, 2 );

@@ -152,7 +152,20 @@ class A1post_Admin {
 							<th scope="row"><label for="a1post_domestic_leg_fee"><?php esc_html_e( 'Цена на Еконт до A1POST', 'sameday-woocommerce-bg' ); ?></label></th>
 							<td>
 								<input type="number" min="0" step="0.01" id="a1post_domestic_leg_fee" class="small-text" name="<?php echo esc_attr( A1post_Tariff::OPTION ); ?>[domestic_leg_fee]" value="<?php echo esc_attr( $settings['domestic_leg_fee'] ); ?>" /> <?php echo esc_html( $currency ); ?>
-								<p class="description"><?php esc_html_e( 'Колко ви струва да изпратите пратката до A1POST (напр. с Еконт от Казанлък до Варна). Добавя се към всяка цена за A1POST, която вижда клиентът – и от тарифата по зони, и от модула „a1post Shipping“. Безплатните доставки остават безплатни.', 'sameday-woocommerce-bg' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Колко ви струва да изпратите пратката до A1POST (напр. с Еконт от Казанлък до Варна) до теглото по-долу. Добавя се към всяка цена за A1POST, която вижда клиентът – и от тарифата по зони, и от модула „a1post Shipping“. Безплатните доставки остават безплатни.', 'sameday-woocommerce-bg' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="a1post_domestic_leg_included_kg"><?php esc_html_e( 'Тази цена важи до (кг)', 'sameday-woocommerce-bg' ); ?></label></th>
+							<td>
+								<input type="number" min="0" step="0.1" id="a1post_domestic_leg_included_kg" class="small-text" name="<?php echo esc_attr( A1post_Tariff::OPTION ); ?>[domestic_leg_included_kg]" value="<?php echo esc_attr( $settings['domestic_leg_included_kg'] ); ?>" /> кг
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="a1post_domestic_leg_extra_kg"><?php esc_html_e( 'За всеки следващ кг', 'sameday-woocommerce-bg' ); ?></label></th>
+							<td>
+								<input type="number" min="0" step="0.01" id="a1post_domestic_leg_extra_kg" class="small-text" name="<?php echo esc_attr( A1post_Tariff::OPTION ); ?>[domestic_leg_extra_kg]" value="<?php echo esc_attr( $settings['domestic_leg_extra_kg'] ); ?>" /> <?php echo esc_html( $currency ); ?>
+								<p class="description"><?php esc_html_e( 'Еконт таксува по тегло, затова цената расте с теглото на поръчката, не с броя продукти. Всеки започнат килограм над горното тегло добавя тази сума. Оставете 0 за фиксирана цена. Работи само ако продуктите имат въведено тегло в WooCommerce.', 'sameday-woocommerce-bg' ); ?></p>
 							</td>
 						</tr>
 					</tbody>

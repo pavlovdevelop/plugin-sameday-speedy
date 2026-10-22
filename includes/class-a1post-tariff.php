@@ -95,6 +95,8 @@ class A1post_Tariff {
 
 			// Cost of getting the parcel to A1POST (e.g. Econt from the shop to Varna), added to every A1POST price.
 			'domestic_leg_fee' => '0',
+			'domestic_leg_included_kg' => '1',
+			'domestic_leg_extra_kg' => '0',
 
 			// Checkout behaviour.
 			'service_label'   => 'Международна доставка с A1POST',
@@ -253,16 +255,27 @@ class A1post_Tariff {
 			$price   += $extra_kg * max( 0.0, (float) $zone['extra_kg'] );
 		}
 
-		return round( $price + self::get_domestic_leg_fee(), wc_get_price_decimals() );
+		return round( $price + self::get_domestic_leg_fee( $weight ), wc_get_price_decimals() );
 	}
 
 	/**
-	 * Cost of getting the parcel to A1POST (e.g. Econt to Varna), in the store currency.
+	 * Cost of getting the parcel to A1POST (e.g. Econt to Varna), in the store currency:
+	 * the base price up to the included weight plus a price for every started kilogram above it.
 	 *
+	 * @param float $weight Parcel weight in kg.
 	 * @return float
 	 */
-	public static function get_domestic_leg_fee() {
-		return max( 0.0, (float) self::get( 'domestic_leg_fee', '0' ) );
+	public static function get_domestic_leg_fee( $weight = 0.0 ) {
+		$fee      = max( 0.0, (float) self::get( 'domestic_leg_fee', '0' ) );
+		$included = max( 0.0, (float) self::get( 'domestic_leg_included_kg', '1' ) );
+		$extra    = max( 0.0, (float) self::get( 'domestic_leg_extra_kg', '0' ) );
+		$weight   = max( 0.0, (float) $weight );
+
+		if ( $extra > 0 && $weight > $included ) {
+			$fee += ceil( $weight - $included ) * $extra;
+		}
+
+		return $fee;
 	}
 
 	/**
@@ -295,6 +308,8 @@ class A1post_Tariff {
 		$clean['ioss']         = isset( $input['ioss'] ) ? sanitize_text_field( wp_unslash( $input['ioss'] ) ) : '';
 		$clean['auto_create_label'] = isset( $input['auto_create_label'] ) && 'yes' === $input['auto_create_label'] ? 'yes' : 'no';
 		$clean['domestic_leg_fee'] = self::sanitize_number( isset( $input['domestic_leg_fee'] ) ? $input['domestic_leg_fee'] : '', '0' );
+		$clean['domestic_leg_included_kg'] = self::sanitize_number( isset( $input['domestic_leg_included_kg'] ) ? $input['domestic_leg_included_kg'] : '', '1' );
+		$clean['domestic_leg_extra_kg'] = self::sanitize_number( isset( $input['domestic_leg_extra_kg'] ) ? $input['domestic_leg_extra_kg'] : '', '0' );
 		$clean['service_label'] = isset( $input['service_label'] ) && '' !== trim( (string) $input['service_label'] )
 			? sanitize_text_field( wp_unslash( $input['service_label'] ) )
 			: $defaults['service_label'];
