@@ -564,15 +564,23 @@ class A1post_Admin {
 					<tr><th>Създадена:</th><td><?php echo $created_at ? esc_html( wp_date( 'd.m.Y H:i', $created_at ) ) : '—'; ?></td></tr>
 					<tr><th>Печат A4:</th><td><a target="_blank" href="<?php echo esc_url( $this->build_print_url( $order, 'pdf_a4' ) ); ?>">отвори PDF A4</a></td></tr>
 					<tr><th>Печат A6:</th><td><a target="_blank" href="<?php echo esc_url( $this->build_print_url( $order, 'pdf_a6' ) ); ?>">отвори PDF A6</a></td></tr>
-					<tr><th>ZPL:</th><td><a target="_blank" href="<?php echo esc_url( $this->build_print_url( $order, 'zpl' ) ); ?>">отвори ZPL</a></td></tr>
+					<tr><th>Баркод:</th><td><a target="_blank" href="<?php echo esc_url( $this->build_print_url( $order, 'pdf_lbl_barcode' ) ); ?>">отвори Barcode PDF</a></td></tr>
 				</tbody>
 			</table>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:12px;">
-				<?php wp_nonce_field( 'a1post_delete_label_' . $order->get_id() ); ?>
-				<input type="hidden" name="action" value="a1post_delete_label" />
-				<input type="hidden" name="order_id" value="<?php echo esc_attr( (string) $order->get_id() ); ?>" />
-				<?php submit_button( 'Изтрий A1POST товарителница', 'delete', 'submit', false ); ?>
-			</form>
+			<?php
+			// A link, not a form: this box sits inside the order edit form and nested forms are not allowed.
+			$delete_url = add_query_arg(
+				array(
+					'action'   => 'a1post_delete_label',
+					'order_id' => $order->get_id(),
+					'_wpnonce' => wp_create_nonce( 'a1post_delete_label_' . $order->get_id() ),
+				),
+				admin_url( 'admin-post.php' )
+			);
+			?>
+			<p style="margin-top:12px;">
+				<a class="button button-link-delete" href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm('Да изтрия ли A1POST товарителницата?');">Изтрий A1POST товарителница</a>
+			</p>
 		</div>
 		<?php
 	}
@@ -651,7 +659,7 @@ class A1post_Admin {
 			wp_die( esc_html__( 'Нямате права за това действие.', 'sameday-woocommerce-bg' ) );
 		}
 
-		$order_id = isset( $_POST['order_id'] ) ? absint( $_POST['order_id'] ) : 0;
+		$order_id = isset( $_REQUEST['order_id'] ) ? absint( $_REQUEST['order_id'] ) : 0;
 		check_admin_referer( 'a1post_delete_label_' . $order_id );
 
 		$order = $order_id ? wc_get_order( $order_id ) : null;
